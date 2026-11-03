@@ -1,0 +1,33 @@
+{
+  "name": "article-studio",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "description": "本地 Markdown 写作工作台：固定文章规范、代码风格与 COSE 多平台草稿分发",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @md/web dev --host 127.0.0.1 --port 5173 --strictPort",
+    "start": "pnpm dev",
+    "build": "pnpm --filter @md/web build",
+    "preview": "pnpm --filter @md/web exec vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "build:extension": "pnpm --filter cose-extension build",
+    "build:all": "pnpm build && pnpm build:extension",
+    "typecheck": "pnpm --filter @md/web type-check",
+    "test": "pnpm --filter @md/web exec vitest run src/lib/article-studio && node --test vendor/cose/tests/*.test.mjs",
+    "test:upstream": "pnpm --filter @md/shared test && pnpm --filter @md/core test && pnpm --filter @md/web test",
+    "lint": "eslint .",
+    "prepare:assets": "node scripts/prepare-assets.mjs",
+    "postinstall": "node scripts/prepare-assets.mjs"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "9.5.1",
+    "@types/node": "^26.6.5",
+    "eslint": "^10.13.0",
+    "eslint-plugin-format": "^2.0.1",
+    "prettier": "2.8.8",
+    "typescript": "~6.0.3"
+  }
+}

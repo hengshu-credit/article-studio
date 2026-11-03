@@ -1,0 +1,99 @@
+:root {
+  --radius: 0rem;
+  --studio-line: #dce3df;
+  --studio-accent: #246d5e;
+}
+
+/* UI chrome only: article templates retain their own versioned geometry. */
+body
+  :where(
+    button,
+    input,
+    select,
+    textarea,
+    [role='dialog'],
+    [role='menu'],
+    [role='listbox'],
+    [class*='rounded'],
+    .view-switch,
+    .studio-paper,
+    .component-thumbnail
+  ):not(#output):not(#output *) {
+  border-radius: 0 !important;
+}
+body :where(button, select, input, textarea):not(#output *) {
+  transition: background-color 120ms, border-color 120ms;
+}
+.header-container.header-container {
+  height: 54px;
+  flex-shrink: 0;
+  background: #15231f !important;
+  color: #e6eee9;
+  border-bottom: 1px solid #2e433a;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+.header-container .menubar {
+  background: transparent !important;
+}
+.header-container button {
+  color: #dce7e0 !important;
+  background: transparent !important;
+  border-color: #41544b !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.header-container button:hover {
+  background: #2a3d33 !important;
+}
+.header-container button[aria-label='复制'] {
+  background: #397d69 !important;
+  border-color: #397d69 !important;
+  color: #fff !important;
+}
+.header-container button[aria-label='复制']:hover {
+  background: #438c77 !important;
+}
+.header-container .menubar button {
+  font-weight: 400;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+}
+.post-slider-panel {
+  background: #f8faf9;
+  border-right: 1px solid var(--studio-line);
+}
+.column-heading {
+  height: 36px !important;
+  letter-spacing: 0.4px;
+  background: hsl(var(--muted) / 0.28) !important;
+}
+.editor-column .column-heading {
+  border-bottom-color: var(--studio-line);
+}
+.writing-column {
+  background: hsl(var(--background));
+}
+.writing-workspace .preview-column .column-body {
+  background: #eef2ef;
+}
+.writing-workspace .preview-column .preview {
+  border-color: #dfe6e1;
+}
+.dark .writing-workspace .preview-column .column-body {
+  background: #141b18;
+}
+.dark .post-slider-panel {
+  background: #19211d;
+  border-color: #37463e;
+}
+.component-grid .component-choice:focus-visible {
+  outline: 2px solid var(--studio-accent);
+  outline-offset: -2px;
+}
+[role='dialog'] {
+  box-shadow: 0 18px 60px rgb(15 31 23 / 16%);
+}
+#app footer {
+  border-top: 1px solid hsl(var(--border));
+}

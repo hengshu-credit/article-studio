@@ -1,0 +1,21 @@
+{
+  "md": {
+    "url": "https://github.com/doocs/md",
+    "commit": "516efead5c5a8a2a49991629533b9a8877924a43",
+    "license": "WTFPL",
+    "paths": [
+      "apps/web",
+      "packages/core",
+      "packages/shared",
+      "packages/config"
+    ]
+  },
+  "cose": {
+    "url": "https://github.com/doocs/cose",
+    "commit": "f9c6fd5de69e9fc1eb687ce703ea39876322f315",
+    "license": "MIT",
+    "paths": [
+      "vendor/cose"
+    ]
+  }
+}

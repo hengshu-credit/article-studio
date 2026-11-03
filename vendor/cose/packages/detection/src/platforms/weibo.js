@@ -1,0 +1,104 @@
+import { convertAvatarToBase64 } from '../utils.js'
+
+/**
+ * Weibo platform detection logic
+ * Strategy:
+ * 1. Check SUBP/ALF cookies on card.weibo.com
+ * 2. Fetch editor page HTML and extract nick/avatar via regex
+ */
+export async function detectWeiboUser() {
+  const platformId = 'weibo'
+  try {
+    // 检查 card.weibo.com 的 SUBP cookie
+    const subpCookie = await chrome.cookies.get({
+      url: 'https://card.weibo.com',
+      name: 'SUBP',
+    })
+
+    // 也检查 ALF cookie
+    const alfCookie = await chrome.cookies.get({
+      url: 'https://card.weibo.com',
+      name: 'ALF',
+    })
+
+    if (!subpCookie && !alfCookie) {
+      console.log(`[COSE] weibo 未找到登录 cookie，未登录`)
+      return { loggedIn: false }
+    }
+
+    // 有 cookie，通过 fetch HTML 获取用户信息
+    let username = ''
+    let avatar = ''
+
+    try {
+      // 获取所有相关 cookies 并手动添加到请求
+      const weiboCookies = await chrome.cookies.getAll({ domain: '.weibo.com' })
+      const cardCookies = await chrome.cookies.getAll({ domain: 'card.weibo.com' })
+      const sinaCookies = await chrome.cookies.getAll({ domain: '.sina.com.cn' })
+      const allCookies = [...weiboCookies, ...cardCookies, ...sinaCookies]
+      const cookieString = allCookies.map(c => `${c.name}=${c.value}`).join('; ')
+
+      const response = await fetch('https://card.weibo.com/article/v5/editor', {
+        method: 'GET',
+        headers: {
+          Cookie: cookieString,
+        },
+        credentials: 'include',
+      })
+      const html = await response.text()
+
+      // 从 HTML 中提取用户名
+      // 页面中 JSON 以 \uXXXX 转义存储（如 "nick":"A\u5c0f"），
+      // 使用正则匹配并解码 Unicode 转义序列
+      const nickMatch = html.match(/"nick"\s*:\s*"((?:[^"\\]|\\.)*)"/)
+      if (nickMatch) {
+        // 解码 \uXXXX 转义序列为实际字符
+        username = nickMatch[1].replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
+          String.fromCharCode(parseInt(hex, 16))
+        )
+      } else {
+        // 深度查找 nick（双重转义的情况）
+        const altNickMatch = html.match(/\\"nick\\"\s*:\s*\\"([^\\"]+)\\"/)
+        if (altNickMatch) {
+          username = altNickMatch[1].replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
+            String.fromCharCode(parseInt(hex, 16))
+          )
+        }
+      }
+
+      // 从 HTML 中提取头像
+      const avatarMatch = html.match(/"avatar_large"\s*:\s*"([^"]+)"/)
+      if (avatarMatch) {
+        avatar = avatarMatch[1].replace(/\\/g, '')
+      } else {
+        const altAvatarMatch = html.match(/\\"avatar_large\\"\s*:\s*\\"([^\\"]+)\\"/)
+        if (altAvatarMatch) {
+          let rawAvatar = altAvatarMatch[1].replace(/\\\\\\\//g, '/')
+          if (rawAvatar.includes('sinaimg.cn')) {
+            avatar = rawAvatar.split('?')[0]
+          } else {
+            avatar = rawAvatar
+          }
+        }
+      }
+
+      console.log(`[COSE] weibo 用户信息: ${username}`)
+    } catch (e) {
+      console.log(`[COSE] weibo 获取用户详情失败:`, e.message)
+    }
+
+    if (!username) {
+      return { loggedIn: false }
+    }
+
+    // Convert sinaimg.cn avatar to base64 data URL to bypass CORS/ORB
+    if (avatar && avatar.includes('sinaimg.cn')) {
+      avatar = await convertAvatarToBase64(avatar, 'https://weibo.com/')
+    }
+
+    return { loggedIn: true, username, avatar }
+  } catch (e) {
+    console.log(`[COSE] weibo 检测失败:`, e.message)
+    return { loggedIn: false }
+  }
+}

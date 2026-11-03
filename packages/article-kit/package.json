@@ -1,0 +1,17 @@
+{
+  "name": "@article-studio/article-kit",
+  "type": "module",
+  "version": "1.1.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./styles/v1.css",
+    "./blockquote.css": "./styles/blockquote.css",
+    "./wechat-reference.css": "./styles/wechat-kaiti-red-v1.css",
+    "./wechat-reference.md": "./templates/wechat-kaiti-red-v1.md",
+    "./starter.md": "./templates/starter.md"
+  },
+  "dependencies": {
+    "@md/shared": "workspace:*"
+  }
+}

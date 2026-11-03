@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.wxt/
+.output/
+.vite/
+coverage/
+output/
+apps/web/public/code-themes/
+*.log
+*.tsbuildinfo
+.env.local
+.env.*.local
+.DS_Store
+Thumbs.db

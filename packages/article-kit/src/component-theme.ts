@@ -1,3 +1,5 @@
+import { applyParagraphFormatting } from './paragraph-format'
+
 export interface ComponentTheme {
   primaryColor: string
   fontFamily: string
@@ -21,14 +23,27 @@ export function componentPalette(theme: ComponentTheme) {
     : /^rgba?\(/i.test(theme.primaryColor) ? theme.primaryColor.match(/[\d.]+/g)?.slice(0, 3).map(Number) ?? [] : []
   const rgb = parsed.length === 3 ? parsed.map(channel => Math.min(255, Math.max(0, channel))) : [36, 91, 131]
   const mix = (weight: number) => `rgb(${rgb.map(channel => Math.round(channel * weight + 255 * (1 - weight))).join(`, `)})`
+  const alpha = (opacity: number) => `rgba(${rgb.join(`, `)}, ${opacity})`
   const lightAccent = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722 > 170
-  return { accent: `rgb(${rgb.join(`, `)})`, onAccent: lightAccent ? `#263445` : `#ffffff`, tint: mix(0.07), border: mix(0.25), text: `#263445`, muted: `#64748b` }
+  return {
+    accent: `rgb(${rgb.join(`, `)})`,
+    onAccent: lightAccent ? `#263445` : `#ffffff`,
+    tint: mix(0.07),
+    border: mix(0.25),
+    text: `#263445`,
+    muted: `#64748b`,
+    quoteTint: alpha(0.12),
+    codeShadow: alpha(0.28),
+    scrollbarThumb: alpha(0.65),
+    scrollbarHover: alpha(0.9),
+    scrollbarTrack: alpha(0.08),
+  }
 }
 
 /** One inline styling contract for live articles, thumbnails and delivery HTML. */
 export function applyComponentTheme(html: string, theme: ComponentTheme): string {
   if (!html.includes(`data-md-component=`))
-    return html
+    return applyParagraphFormatting(html)
   const container = document.createElement(`div`)
   container.innerHTML = html
   const palette = componentPalette(theme)
@@ -47,6 +62,13 @@ export function applyComponentTheme(html: string, theme: ComponentTheme): string
   const paint = (element: HTMLElement | undefined | null, styles: Partial<CSSStyleDeclaration>) => {
     if (element)
       Object.assign(element.style, styles)
+  }
+  const paintReportImage = (root: HTMLElement) => {
+    paint(root.querySelector(`[data-wechat-figure-frame]`), { margin: `0 3px`, padding: `0`, lineHeight: `0`, background: `transparent`, border: `0` })
+    paint(root.querySelector(`img`), { display: `block`, width: `100%`, maxWidth: `100%`, height: `auto`, maxHeight: `none`, margin: `0`, boxSizing: `border-box`, border: `1px solid #dedede`, boxShadow: `0 0 5px rgba(0, 0, 0, 0.18)` })
+  }
+  const paintBanner = (banner: HTMLElement | null) => {
+    paint(banner, { border: `0`, background: palette.accent, color: palette.onAccent, padding: `2px 8px`, fontSize: `${Math.round(size * 0.86)}px`, lineHeight: `1.6`, textAlign: `center`, textIndent: `0`, letterSpacing: `1px`, overflowWrap: `anywhere` })
   }
   for (const root of container.querySelectorAll<HTMLElement>(`[data-md-component]`)) {
     const name = root.getAttribute(`data-md-component`)
@@ -95,7 +117,14 @@ export function applyComponentTheme(html: string, theme: ComponentTheme): string
       paint(paragraphs[0], { color: palette.text, fontWeight: `400` })
     }
     if (name === `WeChatBannerV1`)
-      paint(root, { border: `0`, background: palette.accent, color: palette.onAccent, padding: `8px 12px`, fontSize: small, textAlign: `center`, letterSpacing: `1px` })
+      paintBanner(root)
+    if (name === `WeChatFigureBannerV1`) {
+      paint(root, { border: `0`, padding: `0`, background: `transparent` })
+      paintReportImage(root)
+      const banner = root.querySelector<HTMLElement>(`[data-wechat-figure-banner]`)
+      paintBanner(banner)
+      paint(banner, { margin: `4px 0 0` })
+    }
     if (name === `WeChatHighlightV1`) {
       paint(root, { border: `0`, borderLeft: `3px solid ${palette.accent}`, background: palette.tint, color: palette.accent })
       paragraphs.forEach(p => paint(p, { fontWeight: `400` }))
@@ -107,8 +136,10 @@ export function applyComponentTheme(html: string, theme: ComponentTheme): string
         paint(root, { borderTop: `1px solid ${palette.border}`, paddingTop: `16px`, marginTop: `28px` })
         paint(paragraphs[0], { color: palette.accent, fontWeight: `600` })
       }
-      if (name === `WeChatFigureV1`)
-        paint(root.querySelector(`img`), { border: `1px solid ${palette.border}` })
+      if (name === `WeChatFigureV1`) {
+        paintReportImage(root)
+        paragraphs.forEach(p => paint(p, { margin: `8px 0 0` }))
+      }
     }
     if (name === `AuthorBlock`) {
       paint(paragraphs[0], { color: palette.accent, fontWeight: `600` })
@@ -134,5 +165,16 @@ export function applyComponentTheme(html: string, theme: ComponentTheme): string
       root.querySelectorAll<HTMLElement>(`span`).forEach(badge => paint(badge, { background: palette.tint, color: palette.accent, border: `1px solid ${palette.border}`, padding: `4px 8px`, fontSize: small }))
     }
   }
-  return container.innerHTML
+  // Existing articles can keep the two v1 tags: adjacent figure/banner blocks
+  // use the same compact seam as the combined component, before CSS inlining.
+  for (const figure of container.querySelectorAll<HTMLElement>(`[data-md-component="WeChatFigureV1"]`)) {
+    let next = figure.nextSibling
+    while (next?.nodeType === Node.TEXT_NODE && !next.textContent?.trim())
+      next = next.nextSibling
+    if (next instanceof HTMLElement && next.getAttribute(`data-md-component`) === `WeChatBannerV1`) {
+      figure.style.marginBottom = `4px`
+      next.style.marginTop = `0`
+    }
+  }
+  return applyParagraphFormatting(container.innerHTML)
 }

@@ -12,6 +12,7 @@ import { defineConfig, loadEnv } from 'vite'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
 import { utoolsLocalAssetsPlugin } from './plugins/vite-plugin-utools-local-assets.ts'
+import { workspacePlugin } from './plugins/vite-plugin-workspace.ts'
 
 const isUTools = process.env.SERVER_ENV === `UTOOLS`
 const isCfWorkers = process.env.CF_WORKERS === `1`
@@ -105,8 +106,10 @@ export default defineConfig(({ mode }) => {
 
   return {
     base,
+    define: { 'import.meta.env.VITE_SHARED_WORKSPACE': JSON.stringify(isUTools || isCfWorkers || process.env.ARTICLE_STUDIO_LOCAL_ONLY === '1' ? 'false' : 'true') },
     envPrefix: [`VITE_`, `CF_`],
     plugins: [
+      !isUTools && !isCfWorkers && process.env.ARTICLE_STUDIO_LOCAL_ONLY !== '1' && workspacePlugin(),
       vue({
         template: {
           compilerOptions: {

@@ -21,8 +21,10 @@ import {
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { buildAIHeaders, resolveEndpointUrl } from '@/composables/useAIFetch'
+import { useImageUploader } from '@/composables/useImageUploader'
 import { prepareModalOverlayFocus } from '@/lib/a11y/dialog-focus'
 import { copyPlain } from '@/lib/browser/clipboard'
+import { materialLibraryEnabled } from '@/services/materials/client'
 import { store } from '@/storage'
 import useAIImageConfigStore from '@/stores/aiImageConfig'
 import { useEditorStore } from '@/stores/editor'
@@ -39,6 +41,7 @@ const { t } = useI18n()
 const EXPIRY_TIME = 60 * 60 * 1000
 
 const editorStore = useEditorStore()
+const { upload: uploadMaterialImage } = useImageUploader()
 const { editor } = storeToRefs(editorStore)
 const uiStore = useUIStore()
 const { toggleAIDialog } = uiStore
@@ -235,7 +238,7 @@ async function doGenerateImage(promptText: string, clearInput = false) {
 
         const currentTimestamp = Date.now()
 
-        generatedImages.value.unshift(finalUrl)
+        generatedImages.value.unshift(materialLibraryEnabled ? await uploadMaterialImage(finalUrl) : finalUrl)
         imagePrompts.value.unshift(promptText.trim())
         imageTimestamps.value.unshift(currentTimestamp)
         currentImageIndex.value = 0
@@ -355,11 +358,13 @@ function nextImage() {
   }
 }
 
-function insertImageToCursor(imageUrl: string) {
+async function insertImageToCursor(imageUrl: string) {
   if (!editor.value)
     return
 
   try {
+    if (materialLibraryEnabled)
+      imageUrl = await uploadMaterialImage(imageUrl)
     const imagePrompt = imagePrompts.value[currentImageIndex.value] || ``
 
     const altText = imagePrompt.trim()

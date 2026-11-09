@@ -1,8 +1,9 @@
 import type { EditorView } from '@codemirror/view'
-import { Compartment, EditorState } from '@codemirror/state'
+import { Compartment, EditorState, Transaction } from '@codemirror/state'
 import { EditorView as CMEditorView } from '@codemirror/view'
 import { theme as editorTheme, getDefaultCustomTheme } from '@md/shared'
 import { cssSetup } from '@md/shared/editor/css'
+import { replaceDocumentWithoutHistory } from '@md/shared/editor/history'
 import { sanitizeTitle } from '@md/shared/utils/basicHelpers'
 import { downloadFile } from '@md/shared/utils/fileHelpers'
 import { uuidv4 } from '@md/shared/utils/uuid'
@@ -99,7 +100,9 @@ export const useCssEditorStore = defineStore(`cssEditor`, () => {
   }
 
   const getCurrentTabContent = () => {
-    return getCurrentTab().content
+    // Rendering an empty/restored scheme must not create a new shared edit.
+    const config = cssContentConfig.value
+    return (config.tabs.find(tab => tab.id === config.active) ?? config.tabs[0])?.content ?? getDefaultCssContent()
   }
 
   const setCssEditorValue = (content: string) => {
@@ -199,6 +202,8 @@ export const useCssEditorStore = defineStore(`cssEditor`, () => {
         cssEditorThemeCompartment.value.of(editorTheme(isDark.value)),
         CMEditorView.updateListener.of((update) => {
           if (update.docChanged) {
+            if (update.transactions.every(transaction => transaction.annotation(Transaction.addToHistory) === false))
+              return
             const content = update.state.doc.toString()
             const tab = getCurrentTab()
             tab.content = content
@@ -221,6 +226,12 @@ export const useCssEditorStore = defineStore(`cssEditor`, () => {
         effects: cssEditorThemeCompartment.value.reconfigure(editorTheme(isDark.value)),
       })
     }
+  })
+
+  watch(() => cssContentConfig.value.tabs.find(tab => tab.id === cssContentConfig.value.active)?.content, (content) => {
+    const view = cssEditor.value
+    if (view && content !== undefined && view.state.doc.toString() !== content)
+      replaceDocumentWithoutHistory(toRaw(view) as EditorView, content)
   })
 
   const scrollToHeading = (level: string) => {

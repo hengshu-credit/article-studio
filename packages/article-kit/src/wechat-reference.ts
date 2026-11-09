@@ -24,6 +24,7 @@ export const WECHAT_REFERENCE_SOURCE = {
 
 const font = `font-family:${WECHAT_REFERENCE_FONT};font-size:14px;`
 const primary = WECHAT_REFERENCE_SOURCE.primary
+const reportImage = `<section data-wechat-figure-frame style="margin:0 3px;line-height:0;"><img src="{{src}}" alt="{{alt}}" style="display:block;width:100%;max-width:100%;height:auto;margin:0;box-sizing:border-box;border:1px solid #dedede;border-radius:0;box-shadow:0 0 5px rgba(0,0,0,0.18);" /></section>`
 
 export const WECHAT_REFERENCE_COMPONENTS: CustomComponentDef[] = [
   {
@@ -64,8 +65,21 @@ export const WECHAT_REFERENCE_COMPONENTS: CustomComponentDef[] = [
       { name: `src`, description: `可公开访问的图片 HTTPS 地址`, required: true },
       { name: `caption`, description: `图表说明`, default: `图表说明` },
     ],
-    template: `<section data-wechat-reference="figure" style="margin:20px 0;text-align:center;${font}"><img src="{{src}}" alt="{{caption}}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:0;box-shadow:0 0 5px #bfbfbf;" /><p style="margin:8px 0 0;font-size:12px;line-height:1.6;color:#777777;text-indent:0;text-align:center;">{{caption}}</p></section>`,
+    template: `<section data-wechat-reference="figure" style="margin:20px 0;text-align:center;${font}">${reportImage.replace(`{{alt}}`, `{{caption}}`)}{{#if caption}}<p style="margin:8px 0 0;font-size:12px;line-height:1.6;color:#777777;text-indent:0;text-align:center;">{{caption}}</p>{{/if}}</section>`,
     example: `<WeChatFigureV1 src="https://example.com/report.png" caption="请替换为自己的报表图片地址" />`,
+  },
+  {
+    id: `wechat-reference-figure-banner-v1`,
+    name: `WeChatFigureBannerV1`,
+    builtIn: true,
+    description: `报表图片与底部主题色标语，紧凑组合用于文章开篇`,
+    props: [
+      { name: `src`, description: `报表图片地址`, required: true },
+      { name: `text`, description: `图片下方的标语或标题`, required: true },
+      { name: `alt`, description: `图片的替代说明`, default: `报表图片` },
+    ],
+    template: `<section data-wechat-reference="figure-banner" style="margin:20px 0;${font}">${reportImage}<section data-wechat-figure-banner style="margin:4px 0 0;padding:2px 8px;font-size:12px;line-height:1.6;letter-spacing:1px;text-align:center;color:#ffffff;background:${primary};">{{text}}</section></section>`,
+    example: `<WeChatFigureBannerV1 src="https://example.com/report.png" text="用数据检验观点，用代码记录方法" alt="策略上线报告" />`,
   },
 ]
 
@@ -98,18 +112,39 @@ function decorateHeading(heading: HTMLElement, number: string, chapter: boolean)
   const badge = document.createElement(`span`)
   badge.className = `wechat-heading-number`
   badge.textContent = parts.number
+  // Keep the badge's own height independent of a multi-line title's cell.
+  const numberCell = document.createElement(`span`)
+  numberCell.className = `wechat-heading-number-cell`
+  numberCell.append(badge)
   const label = document.createElement(`span`)
   label.className = `wechat-heading-label`
   label.innerHTML = parts.labelHtml
   if (chapter) {
+    const text = document.createElement(`span`)
+    text.className = `wechat-heading-text`
+    text.append(...label.childNodes)
     const rule = document.createElement(`span`)
     rule.className = `wechat-heading-rule`
     rule.setAttribute(`aria-hidden`, `true`)
-    label.append(rule)
+    // The reference article retains <br> inside its decoration sections.
+    // An entirely empty span was removed by WeChat; keep this line non-empty.
+    rule.append(document.createElement(`br`))
+    label.append(text, rule)
   }
-  row.append(badge, label)
+  row.append(numberCell, label)
   heading.replaceChildren(row)
   heading.classList.add(chapter ? `wechat-chapter` : `wechat-subsection`)
+}
+
+function decorateMinorHeading(heading: HTMLElement): void {
+  const marker = document.createElement(`span`)
+  marker.className = `wechat-heading-square`
+  marker.setAttribute(`aria-hidden`, `true`)
+  const label = document.createElement(`span`)
+  label.className = `wechat-heading-label`
+  label.append(...heading.childNodes)
+  heading.replaceChildren(marker, label)
+  heading.classList.add(`wechat-minor-heading`)
 }
 
 /** Add real nodes instead of CSS counters/pseudo-elements, which WeChat may discard. */
@@ -130,6 +165,8 @@ export function decorateWeChatReference(html: string, referenceTheme: boolean): 
         decorateHeading(heading, String(++subsectionIndex).padStart(2, `0`), false)
       }
     }
+    for (const heading of root.querySelectorAll<HTMLElement>(`h4`))
+      decorateMinorHeading(heading)
     // Draw the Mac controls with local inline shapes, without the source's remote SVG background.
     for (const sign of root.querySelectorAll<HTMLElement>(`.mac-sign`)) {
       sign.replaceChildren()

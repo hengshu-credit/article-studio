@@ -10,7 +10,7 @@ export { IndexedDBEngine, LocalStorageEngine, RestfulStorageEngine }
 export type { StorageEngine }
 
 /** Unified storage manager. */
-class StorageManager {
+export class StorageManager {
   private engine: StorageEngine = new LocalStorageEngine()
 
   setEngine(engine: StorageEngine): void {
@@ -23,6 +23,36 @@ class StorageManager {
 
   /** Serialized values written by reactive() but not yet flushed to the engine. */
   private pendingWrites = new Map<string, string>()
+  private reactiveValues = new Map<string, { read: () => string, write: (value: string | null) => void }>()
+  private appliedValues = new Map<string, { value: string | null, resolved: string | null }>()
+
+  /** Read the actual reactive values, including defaults not yet written to disk. */
+  snapshotValues(keys: string[]): Record<string, string | null> {
+    return Object.fromEntries(keys.map((key) => {
+      const reactive = this.reactiveValues.get(key)
+      const actual = reactive?.read() ?? this.getSync(key)
+      const applied = this.appliedValues.get(key)
+      // Hydrating defaults (including lazily created stores) is not a user edit.
+      const value = applied && (!reactive || actual === applied.resolved) ? applied.value : actual
+      return [key, value]
+    }))
+  }
+
+  applyValues(values: Record<string, string | null>): void {
+    for (const [key, value] of Object.entries(values)) {
+      const reactive = this.reactiveValues.get(key)
+      if (reactive) {
+        const applied = this.appliedValues.get(key)
+        const unchanged = applied?.value === value && applied.resolved === reactive.read()
+        if (reactive.read() !== value && !unchanged)
+          reactive.write(value)
+      }
+      else {
+        void (value === null ? this.remove(key) : this.set(key, value)).catch(console.error)
+      }
+      this.appliedValues.set(key, { value, resolved: reactive?.read() ?? value })
+    }
+  }
 
   /** localStorage backup of pendingWrites, written on pagehide (engine writes may not survive tab kill). */
   private static readonly PAGEHIDE_BACKUP_KEY = `MD__pending_writes_backup`
@@ -53,6 +83,7 @@ class StorageManager {
   }
 
   async set(key: string, value: string): Promise<void> {
+    this.appliedValues.delete(key)
     // External writes win over any debounced reactive snapshot for the same key.
     this.pendingWrites.delete(key)
     return this.writeToEngine(key, value)
@@ -143,6 +174,7 @@ class StorageManager {
   }
 
   async remove(key: string): Promise<void> {
+    this.appliedValues.delete(key)
     this.pendingWrites.delete(key)
     return this.engine.remove(key)
   }
@@ -154,6 +186,7 @@ class StorageManager {
   }
 
   async clear(): Promise<void> {
+    this.appliedValues.clear()
     this.pendingWrites.clear()
     return this.engine.clear()
   }
@@ -165,8 +198,13 @@ class StorageManager {
   reactive<T>(key: string, defaultValue: T): Ref<T> {
     const isStringType = typeof defaultValue === `string`
     let initialValue: T = defaultValue
+    const applied = this.appliedValues.get(key)
 
-    if (this.supportsSyncRead()) {
+    if (applied) {
+      if (applied.value !== null)
+        initialValue = isStringType ? applied.value as T : this.parseJSON(applied.value, defaultValue)
+    }
+    else if (this.supportsSyncRead()) {
       try {
         const stored = this.getSync(key)
         if (stored !== null)
@@ -188,14 +226,25 @@ class StorageManager {
     }
 
     const data = ref<T>(initialValue) as Ref<T>
+    const defaultSerialized = JSON.stringify(defaultValue)
+    this.reactiveValues.set(key, {
+      read: () => isStringType ? data.value as string : JSON.stringify(data.value),
+      write: (value) => {
+        data.value = value === null
+          ? JSON.parse(defaultSerialized)
+          : isStringType ? value as T : this.parseJSON(value, JSON.parse(defaultSerialized))
+      },
+    })
+    if (applied)
+      applied.resolved = this.reactiveValues.get(key)!.read()
 
-    if (!this.supportsSyncRead() && !(this.engine instanceof LocalStorageEngine)) {
+    if (!applied && !this.supportsSyncRead() && !(this.engine instanceof LocalStorageEngine)) {
       const loadAsync = isStringType
         ? this.get(key).then(value => value !== null ? (value as T) : null)
         : this.getJSON<T>(key, defaultValue)
 
       loadAsync.then((value) => {
-        if (value !== null)
+        if (value !== null && !this.appliedValues.has(key))
           data.value = value
       })
     }

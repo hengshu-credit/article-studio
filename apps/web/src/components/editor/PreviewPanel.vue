@@ -182,11 +182,6 @@ defineExpose({
 .preview-wrapper {
   height: 100%;
   overflow-y: auto;
-  scrollbar-width: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
 }
 
 :deep(.preview-table) {

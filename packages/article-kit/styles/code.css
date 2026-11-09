@@ -1,0 +1,4 @@
+/* Shared by live preview and inline delivery HTML for every article preset. */
+pre.hljs.code__pre {
+  box-shadow: 0 2px 10px var(--md-code-shadow);
+}

@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import type { Post } from '@md/shared/types'
-import type { CoseTaskStatus } from '@/types/cose'
+import type { CoseAddTaskData, CoseTaskStatus } from '@/types/cose'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { runPublishTasks } from '@/services/publish/tasks'
 
 const props = defineProps<{
-  post: Post
+  tasks: CoseAddTaskData[]
   open: boolean
 }>()
 
-const emit = defineEmits([`update:open`])
+const emit = defineEmits<{ 'update:open': [value: boolean], 'busy': [value: boolean] }>()
 
 const { t } = useI18n()
 
@@ -21,38 +21,17 @@ const taskStatus = ref<CoseTaskStatus | null>(null)
 const submitting = ref(false)
 
 async function startPost() {
-  if (!props.post)
+  if (submitting.value || !props.tasks.length)
     return
-
-  const taskData = {
-    post: {
-      title: props.post.title,
-      content: props.post.content,
-      wechatHtml: props.post.content,
-      markdown: props.post.markdown,
-      thumb: props.post.thumb,
-      desc: props.post.desc,
-    },
-    accounts: props.post.accounts.filter(a => a.checked),
-  }
-
-  const onProgress = (newStatus: CoseTaskStatus) => {
-    taskStatus.value = newStatus
-  }
-
-  const onComplete = () => {
-    submitting.value = false
-  }
-
+  submitting.value = true
+  emit('busy', true)
+  taskStatus.value = null
   try {
-    if (!window.$cose?.addTask)
-      throw new Error(`COSE 扩展未就绪，请加载扩展并刷新页面`)
-    submitting.value = true
-    window.$cose.addTask(taskData, onProgress, onComplete)
+    await runPublishTasks(props.tasks, window.$cose ?? {}, (status) => { taskStatus.value = status })
   }
-  catch (error) {
+  finally {
     submitting.value = false
-    taskStatus.value = { accounts: taskData.accounts.map(account => ({ ...account, status: `failed`, error: error instanceof Error ? error.message : String(error) })) }
+    emit('busy', false)
   }
 }
 

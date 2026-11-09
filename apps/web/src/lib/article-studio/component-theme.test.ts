@@ -61,4 +61,60 @@ describe(`shared component theme`, () => {
     expect(dom.querySelector<HTMLElement>(`[data-md-component] p:nth-child(2)`)?.style.color).toBe(`rgb(192, 0, 0)`)
     expect(dom.textContent).toContain(`10,000 条`)
   })
+
+  it.each([`#c00000`, `#28756b`])(`keeps a compact figure/banner with shared thumbnail and delivery styling in %s`, (primaryColor) => {
+    const theme = { ...DEFAULT_COMPONENT_THEME, primaryColor, fontSize: `14px` }
+    const component = ARTICLE_COMPONENTS.find(item => item.name === `WeChatFigureBannerV1`)!
+    const markdown = `<WeChatFigureBannerV1 src="https://example.com/report.png" text="用数据检验观点，用代码记录方法" alt="策略上线报告" />`
+    const dom = document.createElement(`div`)
+    dom.innerHTML = juice(`<style>img{margin:7px auto}p{margin:14px}</style>${applyComponentTheme(render(markdown), theme)}`)
+    const root = dom.querySelector<HTMLElement>(`[data-md-component="WeChatFigureBannerV1"]`)!
+    const frame = root.querySelector<HTMLElement>(`[data-wechat-figure-frame]`)!
+    const img = root.querySelector(`img`)!
+    const banner = root.querySelector<HTMLElement>(`[data-wechat-figure-banner]`)!
+    expect(img.getAttribute(`src`)).toBe(`https://example.com/report.png`)
+    expect(img.alt).toBe(`策略上线报告`)
+    expect(img.style.margin).toBe(`0px`)
+    expect(img.style.width).toBe(`100%`)
+    expect(img.style.height).toBe(`auto`)
+    expect(img.style.maxHeight).toBe(`none`)
+    expect(img.style.borderColor).toBe(`rgb(222, 222, 222)`)
+    expect(img.style.boxShadow).toBe(`0 0 5px rgba(0, 0, 0, 0.18)`)
+    expect(frame.style.marginBottom).toBe(`0px`)
+    expect(banner.style.marginTop).toBe(`4px`)
+    expect(banner.style.padding).toBe(`2px 8px`)
+    expect(banner.style.fontSize).toBe(`12px`)
+    expect(banner.style.lineHeight).toBe(`1.6`)
+    expect(banner.style.color).toBe(`rgb(255, 255, 255)`)
+    expect(banner.textContent).toBe(`用数据检验观点，用代码记录方法`)
+    expect(root.querySelector(`p,style,link`)).toBeNull()
+    const thumbnail = new DOMParser().parseFromString(componentPreviewDocument(component, theme), `text/html`)
+    expect(thumbnail.querySelector<HTMLElement>(`[data-wechat-figure-banner]`)?.getAttribute(`style`)).toBe(banner.getAttribute(`style`))
+    expect(thumbnail.querySelector(`img`)?.getAttribute(`style`)).toBe(img.getAttribute(`style`))
+  })
+
+  it(`compacts existing adjacent figure/banner tags and omits an explicitly empty caption`, () => {
+    const figure = `<WeChatFigureV1 src="https://example.com/report.png" caption="" />`
+    const banner = `<WeChatBannerV1 text="用数据检验观点，用代码记录方法" />`
+    const dom = document.createElement(`div`)
+    dom.innerHTML = applyComponentTheme(render(`${figure}\n${banner}`), DEFAULT_COMPONENT_THEME)
+    const picture = dom.querySelector<HTMLElement>(`[data-md-component="WeChatFigureV1"]`)!
+    const strip = dom.querySelector<HTMLElement>(`[data-md-component="WeChatBannerV1"]`)!
+    expect(picture.querySelector(`p`)).toBeNull()
+    expect(picture.style.marginBottom).toBe(`4px`)
+    expect(strip.style.marginTop).toBe(`0px`)
+    expect(picture.querySelector(`img`)?.style.marginBottom).toBe(`0px`)
+
+    dom.innerHTML = applyComponentTheme(render(`${figure}\n\n中间有正文。\n\n${banner}`), DEFAULT_COMPONENT_THEME)
+    expect(dom.querySelector<HTMLElement>(`[data-md-component="WeChatFigureV1"]`)?.style.marginBottom).toBe(`20px`)
+    expect(dom.querySelector<HTMLElement>(`[data-md-component="WeChatBannerV1"]`)?.style.marginTop).toBe(`20px`)
+  })
+
+  it(`retains non-empty legacy captions and escapes combined-component labels`, () => {
+    const dom = document.createElement(`div`)
+    dom.innerHTML = applyComponentTheme(render(`<WeChatFigureV1 src="https://example.com/report.png" caption="图一：策略报告" />\n\n<WeChatFigureBannerV1 src="https://example.com/report.png" text="&lt;script&gt;bad()&lt;/script&gt;" />`), DEFAULT_COMPONENT_THEME)
+    expect(dom.querySelector(`p`)?.textContent).toBe(`图一：策略报告`)
+    expect(dom.querySelector(`script`)).toBeNull()
+    expect(dom.querySelector(`[data-wechat-figure-banner]`)?.textContent).toBe(`<script>bad()</script>`)
+  })
 })

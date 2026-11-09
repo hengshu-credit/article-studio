@@ -1,25 +1,51 @@
 <script setup lang="ts">
-import type { EditorView } from '@codemirror/view'
 import type { CustomComponentDef } from '@md/shared/types'
 import { WECHAT_REFERENCE_PRESET } from '@article-studio/article-kit'
-import { Blocks, Bold, ChevronDown, Code, CodeXml, Image, Italic, Link, List, ListOrdered, Quote, Redo2, Search, Strikethrough, Table, Undo2 } from '@lucide/vue'
-import { applyHeading, formatBold, formatCode, formatItalic, formatLink, formatStrikethrough, redoAction, undoAction } from '@md/shared/editor'
+import { Compartment, StateEffect } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
+import { Blocks, Bold, ChevronDown, Code, CodeXml, Image, IndentDecrease, Italic, Link, List, ListOrdered, Quote, Redo2, Search, Strikethrough, Table, Undo2 } from '@lucide/vue'
+import { applyHeading, formatBold, formatCode, formatItalic, formatLink, formatStrikethrough } from '@md/shared/editor'
 import ComponentThumbnail from '@/components/editor/ComponentThumbnail.vue'
 import { useEditorRefresh } from '@/composables/useEditorRefresh'
 import { useLocalizedAllComponents } from '@/composables/useLocalizedBuiltinComponents'
-import { formatBlock, insertBlock, insertCodeFence } from '@/lib/article-studio/editor-actions'
+import { formatBlock, insertBlock, insertCodeFence, paragraphIndentState, toggleParagraphIndent } from '@/lib/article-studio/editor-actions'
+import { materialLibraryEnabled } from '@/services/materials/client'
 import { useEditorStore } from '@/stores/editor'
 import { useThemeStore } from '@/stores/theme'
 import { useUIStore } from '@/stores/ui'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 const editor = useEditorStore()
 const theme = useThemeStore()
 const ui = useUIStore()
+const workspace = useWorkspaceStore()
 const { editorRefresh } = useEditorRefresh()
 const components = useLocalizedAllComponents()
 const componentOpen = ref(false)
 const codeOpen = ref(false)
 const query = ref(``)
+const canAdjustIndent = ref(false)
+const noIndent = ref(false)
+const indentListener = new Compartment()
+watch(() => editor.editor, (instance, _previous, onCleanup) => {
+  if (!instance) {
+    canAdjustIndent.value = false
+    noIndent.value = false
+    return
+  }
+  const view = toRaw(instance) as EditorView
+  const updateState = () => {
+    const state = paragraphIndentState(view.state)
+    canAdjustIndent.value = state.available
+    noIndent.value = state.noIndent
+  }
+  view.dispatch({ effects: StateEffect.appendConfig.of(indentListener.of(EditorView.updateListener.of((update) => {
+    if (update.docChanged || update.selectionSet)
+      updateState()
+  }))) })
+  updateState()
+  onCleanup(() => view.dispatch({ effects: indentListener.reconfigure([]) }))
+}, { immediate: true })
 const labels: Record<string, string> = {
   ArticleLeadV1: `文章导读`,
   KeyFindingV1: `核心结论`,
@@ -31,6 +57,7 @@ const labels: Record<string, string> = {
   WeChatBannerV1: `栏目短句`,
   WeChatHighlightV1: `重点强调`,
   WeChatFigureV1: `报表图片`,
+  WeChatFigureBannerV1: `图片与标语`,
   MpProfile: `公众号名片`,
   QRCodeBlock: `二维码`,
   AuthorBlock: `作者信息`,
@@ -39,7 +66,7 @@ const labels: Record<string, string> = {
   InfoGrid: `信息网格`,
   BadgeGroup: `标签组`,
 }
-const preferredNames = computed(() => theme.articlePresetId === WECHAT_REFERENCE_PRESET ? [`WeChatIntroV1`, `WeChatHighlightV1`, `MetricCardV1`] : [`ArticleLeadV1`, `KeyFindingV1`, `MetricCardV1`])
+const preferredNames = computed(() => theme.articlePresetId === WECHAT_REFERENCE_PRESET ? [`WeChatFigureBannerV1`, `WeChatIntroV1`, `WeChatHighlightV1`, `MetricCardV1`] : [`ArticleLeadV1`, `KeyFindingV1`, `MetricCardV1`])
 const filteredComponents = computed(() => {
   const rank = (name: string) => {
     const preferred = preferredNames.value.indexOf(name)
@@ -100,10 +127,10 @@ function addCode(language: string) {
   <div class="writing-toolbar" aria-label="写作快捷操作">
     <div class="toolbar-row format-row" role="group" aria-label="快捷格式">
       <div class="tool-group">
-        <button class="tool-icon" title="撤销 · Ctrl+Z" aria-label="撤销" :disabled="!editor.editor" @pointerdown.prevent @click="run(undoAction)">
+        <button class="tool-icon" title="撤销 · Ctrl+Z" aria-label="撤销" :disabled="!editor.editor || (workspace.enabled && !workspace.canUndo && !workspace.pending)" @pointerdown.prevent @click="editor.undo()">
           <Undo2 />
         </button>
-        <button class="tool-icon" title="重做 · Ctrl+Shift+Z" aria-label="重做" :disabled="!editor.editor" @pointerdown.prevent @click="run(redoAction)">
+        <button class="tool-icon" title="重做 · Ctrl+Shift+Z" aria-label="重做" :disabled="!editor.editor || (workspace.enabled && (!workspace.canRedo || workspace.pending))" @pointerdown.prevent @click="editor.redo()">
           <Redo2 />
         </button>
       </div>
@@ -117,6 +144,9 @@ function addCode(language: string) {
           H{{ n }} 标题
         </option>
       </select>
+      <button class="tool-icon" aria-label="首行不缩进" :title="noIndent ? '恢复主题默认首行缩进' : '取消当前或所选段落的首行缩进'" :aria-pressed="noIndent" :disabled="!editor.editor || !canAdjustIndent" @pointerdown.prevent @click="run(toggleParagraphIndent)">
+        <IndentDecrease />
+      </button>
       <div class="tool-group">
         <button v-for="tool in tools" :key="tool.label" class="tool-icon" :title="tool.hint" :aria-label="tool.label" :disabled="!editor.editor" @pointerdown.prevent @click="run(tool.run)">
           <component :is="tool.icon" />
@@ -138,8 +168,8 @@ function addCode(language: string) {
       <button class="tool-text" title="插入表格" @click="ui.openTableEditDialog()">
         <Table /><span>表格</span>
       </button>
-      <button class="tool-text" title="插入图片" @click="ui.isShowUploadImgDialog = true">
-        <Image /><span>图片</span>
+      <button class="tool-text" :title="materialLibraryEnabled ? '素材库' : '插入图片'" @click="ui.isShowUploadImgDialog = true">
+        <Image /><span>{{ materialLibraryEnabled ? '素材库' : '图片' }}</span>
       </button>
       <span class="tool-divider" />
       <Popover v-model:open="componentOpen">

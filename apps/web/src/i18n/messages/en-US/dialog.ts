@@ -109,10 +109,14 @@ export default {
     sharePreview: `Share Preview`,
   },
   about: {
-    title: `About`,
-    description: `A minimalist Markdown editor for WeChat Official Accounts`,
-    followHint: `Scan the QR code to follow Doocs on WeChat for original tech content.`,
-    imageAlt: `Doocs Markdown Editor`,
+    title: `About Article Studio`,
+    description: `Hengshu Credit · Contact us`,
+    followHint: `Scan to add us on WeChat or follow our official account for feedback and technical discussions.`,
+    wechatAlt: `WeChat QR code for itlubber`,
+    wechatLabel: `WeChat · itlubber`,
+    officialAlt: `WeChat official account QR code for 衡枢风控`,
+    officialLabel: `Official account · 衡枢风控`,
+    officialHint: `Reply “入群” to join the community`,
   },
   fund: {
     title: `Support`,

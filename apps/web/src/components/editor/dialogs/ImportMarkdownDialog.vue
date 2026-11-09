@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { FileText, Globe, Loader2, Upload } from '@lucide/vue'
+import { materialPath } from '@/services/materials/client'
 import { usePostStore } from '@/stores/post'
 import { useUIStore } from '@/stores/ui'
 
@@ -21,7 +22,7 @@ function detectLocalImagePaths(content: string): string[] {
   let match = regex.exec(content)
   while (match != null) {
     const path = match[1]!.trim()
-    if (path) {
+    if (path && !materialPath(path)) {
       paths.add(path)
     }
     match = regex.exec(content)

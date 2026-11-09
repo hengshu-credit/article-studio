@@ -373,6 +373,7 @@ declare global {
   const useWindowFocus: typeof import('@vueuse/core').useWindowFocus
   const useWindowScroll: typeof import('@vueuse/core').useWindowScroll
   const useWindowSize: typeof import('@vueuse/core').useWindowSize
+  const useWorkspaceStore: typeof import('./src/stores/workspace').useWorkspaceStore
   const watch: typeof import('vue').watch
   const watchArray: typeof import('@vueuse/shared').watchArray
   const watchAtMost: typeof import('@vueuse/shared').watchAtMost

@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import type { Post, PostAccount } from '@md/shared/types'
+import type { PublishDraftMap } from '@/services/publish/drafts'
+import type { CoseAddTaskData } from '@/types/cose'
 import { Check, ChevronDown, ChevronRight, Info, Loader2, Minus } from '@lucide/vue'
 import { CheckboxIndicator, CheckboxRoot, Primitive } from 'reka-ui'
 import { buildArticleArtifact } from '@/services/publish/article-artifact'
+import { createPublishDraftSession, PUBLISH_DRAFTS_KEY } from '@/services/publish/drafts'
+import { buildPublishTasks } from '@/services/publish/tasks'
+import { store } from '@/storage'
+import { usePostStore } from '@/stores/post'
 import { useUIStore } from '@/stores/ui'
+import PublishImageField from './PublishImageField.vue'
 
 defineOptions({
   inheritAttrs: false,
@@ -22,7 +29,22 @@ const thumbPreviewVisible = ref(false)
 const extensionInstalled = ref(false)
 const allAccounts = ref<PostAccount[]>([])
 const postTaskDialogVisible = ref(false)
+const postRunning = ref(false)
 const isCheckingLogin = ref(false)
+const imageBusy = ref(false)
+const submittedTasks = shallowRef<CoseAddTaskData[]>([])
+const posts = usePostStore()
+const drafts = createPublishDraftSession(store.reactive<PublishDraftMap>(PUBLISH_DRAFTS_KEY, {}))
+const { fields: publishFields, active: activeChannel, articleId: draftArticleId } = drafts
+const selectedAccounts = computed(() => allAccounts.value.filter(account => account.checked))
+let preparationGeneration = 0
+let artifactQueue = Promise.resolve()
+
+function prepareArtifact() {
+  const result = artifactQueue.then(() => buildArticleArtifact())
+  artifactQueue = result.then(() => {}, () => {})
+  return result
+}
 
 const form = ref<Post>({
   title: ``,
@@ -33,7 +55,7 @@ const form = ref<Post>({
   accounts: [] as PostAccount[],
 })
 
-const allowPost = computed(() => !preparing.value && !preparationError.value && !!form.value.content && extensionInstalled.value && allAccounts.value.some(a => a.checked && a.loggedIn))
+const allowPost = computed(() => !preparing.value && !imageBusy.value && !postRunning.value && !!form.value.content && extensionInstalled.value && allAccounts.value.some(a => a.checked && a.loggedIn))
 
 const platformCategories = [
   {
@@ -91,27 +113,23 @@ function toggleCategorySelectAll(accounts: PostAccount[]) {
 }
 
 async function prePost() {
+  const generation = ++preparationGeneration
+  const articleId = posts.currentPostId
   preparing.value = true
   preparationError.value = ``
+  form.value.content = ``
   // Start detection when extension installed but no account data
   if (extensionInstalled.value && allAccounts.value.length === 0) {
     // Fire-and-forget; detection runs in background
     startLoginDetection()
   }
 
-  let auto: Post = {
-    thumb: ``,
-    title: ``,
-    desc: ``,
-    content: ``,
-    markdown: ``,
-    accounts: [],
-  }
-  const accounts = allAccounts.value.filter(a => ![`ipfs`].includes(a.type))
   try {
-    const artifact = await buildArticleArtifact()
-    auto = {
-      thumb: document.querySelector<HTMLImageElement>(`#output img`)?.src ?? ``,
+    const artifact = await prepareArtifact()
+    if (generation !== preparationGeneration || articleId !== posts.currentPostId || !dialogVisible.value)
+      return
+    form.value = {
+      thumb: document.querySelector<HTMLImageElement>(`#output img`)?.getAttribute(`src`) ?? ``,
       title: [1, 2, 3, 4, 5, 6]
         .map(h => document.querySelector(`#output h${h}`))
         .find(h => h)
@@ -119,17 +137,18 @@ async function prePost() {
       desc: document.querySelector(`#output p`)?.textContent?.trim() ?? ``,
       content: artifact.html,
       markdown: artifact.markdown,
-      accounts,
+      accounts: [],
     }
+    drafts.open(articleId, form.value)
+    allAccounts.value.forEach((account) => { account.checked = drafts.selected.value.includes(account.type) })
   }
   catch (cause) {
-    preparationError.value = cause instanceof Error ? cause.message : String(cause)
+    if (generation === preparationGeneration)
+      preparationError.value = cause instanceof Error ? cause.message : String(cause)
   }
   finally {
-    preparing.value = false
-    form.value = {
-      ...auto,
-    }
+    if (generation === preparationGeneration)
+      preparing.value = false
   }
 }
 
@@ -137,13 +156,26 @@ watch(dialogVisible, (newVal) => {
   if (newVal) {
     prePost()
   }
+  else {
+    preparationGeneration++
+    preparing.value = false
+  }
+})
+
+watch(() => posts.currentPostId, () => {
+  if (dialogVisible.value)
+    void prePost()
+})
+watch(() => selectedAccounts.value.map(account => account.type), (types) => {
+  if (dialogVisible.value && !preparing.value && form.value.content)
+    drafts.select(types)
 })
 
 function getInitialPlatforms(): PostAccount[] {
   if (typeof window.$cose?.getPlatforms === `function`) {
     return window.$cose.getPlatforms().map(platform => ({
       ...platform,
-      checked: false,
+      checked: drafts.selected.value.includes(platform.type),
       loggedIn: false,
       isChecking: true,
     }))
@@ -181,7 +213,7 @@ function startLoginDetection() {
 
         const idx = allAccounts.value.findIndex(a => a.type === account.type)
         if (idx !== -1) {
-          allAccounts.value[idx] = { ...account, checked: false, isChecking: false }
+          allAccounts.value[idx] = { ...account, checked: drafts.selected.value.includes(account.type), isChecking: false }
         }
       },
       () => {
@@ -194,7 +226,7 @@ function startLoginDetection() {
     cose.getAccounts?.((resp: PostAccount[]) => {
       hasReceivedAny = true
       clearTimeout(timeoutId)
-      allAccounts.value = resp.map(a => ({ ...a, checked: false, isChecking: false }))
+      allAccounts.value = resp.map(a => ({ ...a, checked: drafts.selected.value.includes(a.type), isChecking: false }))
       isCheckingLogin.value = false
     })
   }
@@ -208,10 +240,32 @@ async function getAccounts(): Promise<void> {
   })
 }
 
-function post() {
-  form.value.accounts = allAccounts.value.filter(a => a.checked && a.loggedIn)
-  postTaskDialogVisible.value = true
-  dialogVisible.value = false
+async function post() {
+  if (!allowPost.value)
+    return
+  const articleId = posts.currentPostId
+  const generation = ++preparationGeneration
+  const accounts = allAccounts.value.filter(a => a.checked && a.loggedIn).map(account => ({ ...account }))
+  const metadata = drafts.snapshot(accounts.map(account => account.type))
+  preparing.value = true
+  preparationError.value = ``
+  try {
+    const artifact = await prepareArtifact()
+    const tasks = await buildPublishTasks(artifact, accounts, metadata)
+    if (generation !== preparationGeneration || articleId !== posts.currentPostId || !dialogVisible.value)
+      return
+    submittedTasks.value = tasks
+    postTaskDialogVisible.value = true
+    dialogVisible.value = false
+  }
+  catch (cause) {
+    if (generation === preparationGeneration)
+      preparationError.value = cause instanceof Error ? cause.message : String(cause)
+  }
+  finally {
+    if (generation === preparationGeneration)
+      preparing.value = false
+  }
 }
 
 function onUpdate(val: boolean) {
@@ -346,29 +400,42 @@ onBeforeMount(() => {
             </AlertDescription>
           </Alert>
 
-          <div class="w-full flex flex-col gap-4" :class="{ 'pointer-events-none opacity-50': !extensionInstalled }" :inert="!extensionInstalled || undefined" :aria-disabled="!extensionInstalled">
+          <div class="w-full flex flex-col gap-4" :class="{ 'pointer-events-none opacity-50': preparing || !form.content }" :inert="preparing || !form.content || undefined" :aria-disabled="preparing || !form.content">
+            <div class="space-y-2 rounded-md border bg-muted/20 p-3">
+              <Label for="publish-channel">当前编辑渠道</Label>
+              <select id="publish-channel" :value="activeChannel" :disabled="imageBusy" class="h-9 w-full rounded-md border bg-background px-3 text-sm" @change="drafts.activate(($event.target as HTMLSelectElement).value)">
+                <option value="">
+                  通用设置（新选渠道的默认内容）
+                </option>
+                <option v-for="account in selectedAccounts" :key="account.type" :value="account.type">
+                  {{ account.title }}
+                </option>
+              </select>
+              <p class="text-xs text-muted-foreground">
+                封面、标题和描述按文章及渠道自动保存在本机，重新打开会恢复。多选渠道后可分别编辑。
+              </p>
+            </div>
             <div class="grid grid-cols-1 items-center gap-2 sm:grid-cols-[minmax(5.5rem,auto)_1fr] sm:gap-x-4">
               <Label for="thumb" class="sm:text-end">
                 {{ t('postInfo.cover') }}
               </Label>
-              <div class="flex min-w-0 items-center gap-2">
-                <Input id="thumb" v-model="form.thumb" :placeholder="t('postInfo.coverPlaceholder')" class="min-w-0 flex-1" />
-                <Button v-if="form.thumb" variant="outline" size="sm" class="shrink-0" @click="thumbPreviewVisible = true">
+              <PublishImageField id="thumb" :key="`${draftArticleId}:${activeChannel}`" :model-value="publishFields.thumb" :placeholder="t('postInfo.coverPlaceholder')" @update:model-value="drafts.update({ thumb: $event })" @busy="imageBusy = $event">
+                <Button v-if="publishFields.thumb" variant="outline" size="sm" class="shrink-0" @click="thumbPreviewVisible = true">
                   {{ t('common.view') }}
                 </Button>
-              </div>
+              </PublishImageField>
             </div>
             <div class="grid grid-cols-1 items-center gap-2 sm:grid-cols-[minmax(5.5rem,auto)_1fr] sm:gap-x-4">
               <Label for="title" class="sm:text-end">
                 {{ t('postInfo.titleLabel') }}
               </Label>
-              <Input id="title" v-model="form.title" :placeholder="t('postInfo.titlePlaceholder')" class="min-w-0" />
+              <Input id="title" :model-value="publishFields.title" :placeholder="t('postInfo.titlePlaceholder')" class="min-w-0" @update:model-value="drafts.update({ title: String($event) })" />
             </div>
             <div class="grid grid-cols-1 items-start gap-2 sm:grid-cols-[minmax(5.5rem,auto)_1fr] sm:gap-x-4">
               <Label for="desc" class="sm:pt-2 sm:text-end">
                 {{ t('postInfo.descLabel') }}
               </Label>
-              <Textarea id="desc" v-model="form.desc" :placeholder="t('postInfo.descPlaceholder')" class="min-w-0" />
+              <Textarea id="desc" :model-value="publishFields.desc" :placeholder="t('postInfo.descPlaceholder')" class="min-w-0" @update:model-value="drafts.update({ desc: String($event) })" />
             </div>
 
             <div class="grid grid-cols-1 items-start gap-2 sm:grid-cols-[minmax(5.5rem,auto)_1fr] sm:gap-x-4">
@@ -480,7 +547,7 @@ onBeforeMount(() => {
         </DialogHeader>
         <div class="flex items-center justify-center p-2">
           <img
-            :src="form.thumb"
+            :src="publishFields.thumb"
             :alt="t('postInfo.coverPreviewAlt')"
             class="max-h-[70vh] max-w-full rounded-md object-contain"
             @load="($event.target as HTMLImageElement).style.removeProperty('display')"
@@ -490,6 +557,6 @@ onBeforeMount(() => {
       </DialogContent>
     </Dialog>
 
-    <PostTaskDialog v-model:open="postTaskDialogVisible" :post="form" />
+    <PostTaskDialog v-model:open="postTaskDialogVisible" :tasks="submittedTasks" @busy="postRunning = $event" />
   </div>
 </template>

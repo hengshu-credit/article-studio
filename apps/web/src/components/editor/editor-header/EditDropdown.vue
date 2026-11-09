@@ -12,7 +12,6 @@ import {
   WandSparkles,
 } from '@lucide/vue'
 import { altSign, ctrlSign, shiftSign } from '@md/shared/configs'
-import { redoAction, undoAction } from '@md/shared/editor'
 import { useEditorDocumentActions } from '@/composables/useEditorDocumentActions'
 import { copyPlain, readPlainFromClipboard } from '@/lib/browser/clipboard'
 import { useEditorStore } from '@/stores/editor'
@@ -53,7 +52,7 @@ function undo() {
 
   try {
     const editorView = toRaw(editor.value) as EditorView
-    undoAction(editorView)
+    editorStore.undo()
     editorView.focus()
   }
   catch (error) {
@@ -67,7 +66,7 @@ function redo() {
 
   try {
     const editorView = toRaw(editor.value) as EditorView
-    redoAction(editorView)
+    editorStore.redo()
     editorView.focus()
   }
   catch (error) {

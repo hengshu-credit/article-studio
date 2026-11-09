@@ -1,6 +1,7 @@
 import { toBase64 } from '@md/shared/utils/fileHelpers'
 import { ref } from 'vue'
 import { t } from '@/i18n/translate'
+import { getMaterial, materialLibraryEnabled, materialPath, uploadMaterial } from '@/services/materials/client'
 import { fileUpload } from '@/services/upload'
 import { store } from '@/storage'
 
@@ -33,11 +34,11 @@ export function useImageUploader() {
 
   // URL → File (watch CORS)
   const urlToFile = async (url: string): Promise<File> => {
-    const getFilename = (u: string) => u.split('/').pop()?.split('?')[0] || `image-${Date.now()}.png`
+    const getFilename = (u: string) => /^(?:data:|blob:)/.test(u) ? `image-${Date.now()}.png` : (u.split('/').pop()?.split('?')[0] || `image-${Date.now()}.png`).slice(0, 200)
     const filename = getFilename(url)
 
     // Upgrade http:// to https:// to avoid mixed-content blocking
-    const safeUrl = url.replace(/^http:\/\//i, 'https://')
+    const safeUrl = materialLibraryEnabled ? url : url.replace(/^http:\/\//i, 'https://')
 
     const fetchBlob = async (targetUrl: string, options?: RequestInit) => {
       const res = await fetch(targetUrl, options)
@@ -51,6 +52,8 @@ export function useImageUploader() {
       return new File([blob], filename, { type: blob.type })
     }
     catch (directErr) {
+      if (materialLibraryEnabled)
+        throw new Error('无法读取此图片，请下载后上传到素材库')
       console.warn(`Direct fetch failed for ${safeUrl}, trying proxy...`, directErr)
 
       try {
@@ -76,11 +79,21 @@ export function useImageUploader() {
     try {
       let file: File
       if (typeof resource === 'string') {
+        const path = materialLibraryEnabled ? materialPath(resource) : null
+        if (path) {
+          const existing = await getMaterial(path.split('/').pop()!.split('.')[0])
+          if (!existing)
+            throw new Error('该素材已不可用，请重新上传')
+          return existing.url
+        }
         file = await urlToFile(resource)
       }
       else {
         file = resource
       }
+
+      if (materialLibraryEnabled)
+        return (await uploadMaterial(file)).material.url
 
       const hash = await calculateHash(file)
       const imgHost = (await store.get(`imgHost`)) || `default`

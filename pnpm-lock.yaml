@@ -359,6 +359,9 @@ importers:
       reka-ui:
         specifier: ^2.11.0
         version: 2.11.0(vue@3.5.44(typescript@6.0.3))
+      sharp:
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@26.6.5)
       tailwind-merge:
         specifier: ^3.7.0
         version: 3.7.0

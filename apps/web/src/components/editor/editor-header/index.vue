@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Copy, Loader2, Menu } from '@lucide/vue'
 import { defineAsyncComponent } from 'vue'
+import brandLogo from '@/assets/images/hengshucredit_animated.svg'
 import ArticleStudioDialog from '@/components/editor/ArticleStudioDialog.vue'
 import { useEditorRefresh } from '@/composables/useEditorRefresh'
 import { delay } from '@/lib/delay'
@@ -14,8 +15,8 @@ import FileDropdown from './FileDropdown.vue'
 import FormatDropdown from './FormatDropdown.vue'
 import HelpDropdown from './HelpDropdown.vue'
 import InsertDropdown from './InsertDropdown.vue'
-import StyleDropdown from './StyleDropdown.vue'
 
+withDefaults(defineProps<{ brandWidth?: number }>(), { brandWidth: 240 })
 const emit = defineEmits([`startCopy`, `endCopy`, `resetLayout`])
 const { t } = useI18n()
 const AboutDialog = defineAsyncComponent(() => import('./AboutDialog.vue'))
@@ -220,11 +221,12 @@ function copyToWeChat() {
 </script>
 
 <template>
-  <header
-    class="header-container h-15 flex flex-wrap items-center justify-between px-5 relative"
-  >
-    <div class="space-x-1 hidden md:flex items-center">
-      <span class="mr-4 inline-flex items-center gap-2 text-sm font-semibold tracking-tight"><span class="inline-flex size-7 items-center justify-center rounded-lg bg-[#28756b] text-white text-xs">M</span>Article Studio</span>
+  <header class="header-container" :style="{ '--header-brand-width': `${brandWidth}px` }">
+    <div class="header-brand" aria-label="Article Studio">
+      <img :src="brandLogo" alt="衡枢真信" class="header-brand-logo" width="28" height="28">
+      <strong class="header-brand-name">Article Studio</strong>
+    </div>
+    <nav class="header-navigation hidden md:flex" aria-label="主导航">
       <Menubar class="menubar border-0">
         <FileDropdown />
         <EditDropdown @copy="handleCopy" />
@@ -233,7 +235,6 @@ function copyToWeChat() {
           <MenubarContent align="start">
             <FormatDropdown :as-sub="true" />
             <InsertDropdown :as-sub="true" />
-            <StyleDropdown :as-sub="true" />
             <MenubarSeparator />
             <MenubarItem @click="uiStore.isOpenPostSlider = !uiStore.isOpenPostSlider">
               显示 / 收起文章库
@@ -245,35 +246,32 @@ function copyToWeChat() {
         </MenubarMenu>
         <HelpDropdown />
       </Menubar>
-    </div>
+    </nav>
 
-    <div class="md:hidden">
+    <div class="header-mobile-menu md:hidden">
       <Menubar class="menubar border-0 p-0">
         <MenubarMenu>
-          <MenubarTrigger class="p-0" :aria-label="t('header.menu')">
-            <Button variant="outline" size="icon" tabindex="-1" aria-hidden="true">
-              <Menu class="size-4" />
-            </Button>
+          <MenubarTrigger class="header-menu-trigger" :aria-label="t('header.menu')">
+            <Menu class="size-4" />
           </MenubarTrigger>
           <MenubarContent align="start">
             <FileDropdown :as-sub="true" />
             <EditDropdown :as-sub="true" @copy="handleCopy" />
             <FormatDropdown :as-sub="true" />
             <InsertDropdown :as-sub="true" />
-            <StyleDropdown :as-sub="true" />
             <HelpDropdown :as-sub="true" />
           </MenubarContent>
         </MenubarMenu>
       </Menubar>
     </div>
 
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="header-actions">
       <Button variant="outline" class="h-9" :aria-pressed="uiStore.isOpenRightSlider" @click="uiStore.isOpenRightSlider = !uiStore.isOpenRightSlider">
         样式设置
       </Button>
       <Button
         variant="outline"
-        class="h-9 max-md:w-9 max-md:px-0"
+        class="header-primary-action h-9 max-md:w-9 max-md:px-0"
         :disabled="isCopying"
         :aria-busy="isCopying"
         :aria-label="t('header.copy')"
@@ -302,19 +300,6 @@ function copyToWeChat() {
 </template>
 
 <style lang="less" scoped>
-.header-container {
-  background: hsl(var(--background) / 0.95);
-  border-bottom: 1px solid hsl(var(--border));
-  backdrop-filter: blur(12px);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 50;
-
-  @media (max-width: 768px) {
-    padding-left: 1rem;
-    padding-right: 1rem;
-  }
-}
-
 .menubar {
   user-select: none;
 
@@ -394,19 +379,6 @@ kbd {
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@media (max-width: 768px) {
-  .menubar {
-    flex-direction: column;
-    align-items: flex-start;
-    width: 100%;
-
-    > * {
-      width: 100%;
-      justify-content: flex-start;
-    }
   }
 }
 </style>

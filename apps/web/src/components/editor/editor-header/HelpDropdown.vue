@@ -46,11 +46,11 @@ function openKeyboardShortcuts() {
 }
 
 function openFeedback() {
-  window.open(`https://github.com/doocs/md/issues`, `_blank`)
+  window.open(`https://github.com/hengshu-credit/article-studio/issues/new`, `_blank`, `noopener,noreferrer`)
 }
 
 function openReleases() {
-  window.open(`https://github.com/doocs/md/releases`, `_blank`)
+  window.open(`https://github.com/hengshu-credit/article-studio/releases`, `_blank`, `noopener,noreferrer`)
 }
 </script>
 

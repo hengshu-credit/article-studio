@@ -49,59 +49,85 @@ h3.wechat-subsection {
   color: #000000;
 }
 .wechat-chapter-row {
-  display: flex;
-  align-items: flex-end;
-  width: 50%;
-  min-width: 150px;
+  display: table;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
   padding: 0;
   text-indent: 0;
 }
+.wechat-heading-number-cell {
+  display: table-cell;
+  width: 25px;
+  padding-right: 3px;
+  vertical-align: bottom;
+  white-space: nowrap;
+  line-height: 0;
+}
 .wechat-chapter-row .wechat-heading-number {
-  display: block;
-  flex: 0 0 25px;
+  display: inline-block;
+  min-width: 25px;
   height: 25px;
   line-height: 25px;
   text-align: center;
   color: #ffffff;
   background: #c00000;
-  box-shadow: 0 2px 2px #ff0000;
+  box-shadow: none;
+}
+.wechat-chapter-row .wechat-heading-number-cell {
+  vertical-align: middle;
+  padding-bottom: 1px;
 }
 .wechat-chapter-row .wechat-heading-label {
-  display: block;
-  flex: 1;
-  min-width: 0;
-  margin-left: 3px;
-  padding: 0 5px 0 0;
+  display: table-cell;
+  vertical-align: middle;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  overflow-wrap: anywhere;
   text-align: center;
+}
+.wechat-chapter-row .wechat-heading-text {
+  display: block;
+  padding: 0 5px 0 0;
+  border: 0;
+  box-shadow: none;
+  line-height: 25px;
 }
 .wechat-heading-rule {
   display: block;
   height: 1px;
-  margin-top: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 0;
+  line-height: 0;
   background: #c00000;
   box-shadow: 2px 2px 4px #ff0000;
 }
 .wechat-subsection-row {
-  display: flex;
-  align-items: flex-end;
-  width: 35%;
+  display: table;
+  width: auto;
+  max-width: 100%;
   min-width: 115px;
   margin: 0;
   padding: 0;
 }
+.wechat-subsection-row .wechat-heading-number-cell {
+  padding-right: 5px;
+}
 .wechat-subsection-row .wechat-heading-number {
-  display: block;
+  display: inline-block;
   padding: 0 5px 3px;
-  margin-right: 5px;
+  line-height: 1.6;
   border-bottom: 3px solid #c00000;
   color: #000000;
   text-align: left;
 }
 .wechat-subsection-row .wechat-heading-label {
-  display: block;
-  flex: 1;
-  min-width: 0;
+  display: table-cell;
+  vertical-align: bottom;
+  overflow-wrap: anywhere;
   padding: 3px 6px 2px 0;
   border-bottom: 1px solid #c00000;
   color: #000000;
@@ -113,7 +139,39 @@ h3.wechat-subsection {
   color: inherit;
   background: transparent;
 }
-h4,
+h4.wechat-minor-heading {
+  display: flex;
+  align-items: flex-start;
+  margin: 22px 0 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-shadow: none;
+  font-family: var(--md-font-family);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.6;
+  text-align: left;
+  text-indent: 0;
+  letter-spacing: 1.5px;
+  color: #262626;
+}
+.wechat-minor-heading .wechat-heading-square {
+  display: block;
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  margin: 8.2px 12px 0 0;
+  background: #c00000;
+}
+.wechat-minor-heading .wechat-heading-label {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 h5,
 h6 {
   margin: 22px 0 12px;
@@ -138,8 +196,7 @@ em {
 pre.hljs.code__pre {
   border: 0;
   border-radius: 5px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
-  margin: 10px 10px 18px;
+  margin: 10px 0 18px;
   padding: 0;
   font-size: 12px;
   line-height: 26px;

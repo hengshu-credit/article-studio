@@ -2,6 +2,7 @@ import { WECHAT_REFERENCE_PRESET } from '@article-studio/article-kit'
 import { nextTick } from 'vue'
 import { inspectArticleHtml, makeArticleDocument, wrapArticleHtml } from '@/lib/article-studio/artifact-html'
 import { processClipboardContent } from '@/services/export/clipboard'
+import { inlineMaterialImages } from '@/services/materials/export'
 import { useEditorStore } from '@/stores/editor'
 import { useRenderStore } from '@/stores/render'
 import { useThemeStore } from '@/stores/theme'
@@ -37,7 +38,10 @@ export async function buildArticleArtifact(): Promise<ArticleArtifact> {
       throw new Error(`图表或公式仍在渲染，请等待完成后重试`)
     if (!result.html.trim())
       throw new Error(`预览尚未就绪，无法生成成稿`)
-    const html = wrapArticleHtml(result.html, {
+    const imageHtml = await inlineMaterialImages(result.html)
+    if (useEditorStore().getContent() !== markdown)
+      throw new Error(`内容已更新，请重新生成成稿`)
+    const html = wrapArticleHtml(imageHtml, {
       fontFamily: theme.fontFamily,
       fontSize: theme.fontSize,
       lineHeight: theme.lineHeight,

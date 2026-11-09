@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/resizable'
 import { useCursorSync } from '@/composables/useCursorSync'
 import { useScrollSync } from '@/composables/useScrollSync'
+import { materialLibraryEnabled } from '@/services/materials/client'
 import { useUIStore } from '@/stores/ui'
 
 const PostSlider = defineAsyncComponent(() => import('@/components/editor/post-slider/index.vue'))
@@ -19,6 +20,7 @@ const RightSlider = defineAsyncComponent(() => import('@/components/editor/Right
 const loadEmojiManagerPanel = () => import('@/components/editor/emoji/EmojiManagerPanel.vue')
 const EmojiManagerPanel = defineAsyncComponent(loadEmojiManagerPanel)
 const UploadImgDialog = defineAsyncComponent(() => import('@/components/editor/dialogs/UploadImgDialog.vue'))
+const MaterialLibraryDialog = defineAsyncComponent(() => import('@/components/editor/dialogs/MaterialLibraryDialog.vue'))
 const TableEditDialog = defineAsyncComponent(() => import('@/components/editor/dialogs/TableEditDialog.vue'))
 const ImportMarkdownDialog = defineAsyncComponent(() => import('@/components/editor/dialogs/ImportMarkdownDialog.vue'))
 const LocalImageUploadDialog = defineAsyncComponent(() => import('@/components/editor/dialogs/LocalImageUploadDialog.vue'))
@@ -139,6 +141,17 @@ const previewPanelConfig = computed(() => {
 const editorResizablePanelRef = ref<InstanceType<typeof ResizablePanel> | null>(null)
 const previewResizablePanelRef = ref<InstanceType<typeof ResizablePanel> | null>(null)
 const postSliderPanelRef = ref<InstanceType<typeof ResizablePanel> | null>(null)
+const editorShellRef = useTemplateRef<HTMLDivElement>('editorShell')
+const observedSidebarWidth = ref(240)
+const sidebarElement = computed(() => postSliderPanelRef.value?.$el as HTMLElement | undefined)
+useResizeObserver(sidebarElement, ([entry]) => {
+  if (!entry)
+    return
+  const bounds = entry.target.getBoundingClientRect()
+  if (bounds.width > 0)
+    observedSidebarWidth.value = bounds.right - (editorShellRef.value?.getBoundingClientRect().left ?? 0)
+}, { box: 'border-box' })
+const headerBrandWidth = computed(() => !isMobile.value && isOpenPostSlider.value ? observedSidebarWidth.value : 180)
 const cssEditorPanelRef = ref<InstanceType<typeof ResizablePanel> | null>(null)
 const rightSliderPanelRef = ref<InstanceType<typeof ResizablePanel> | null>(null)
 const emojiManagerPanelRef = ref<InstanceType<typeof ResizablePanel> | null>(null)
@@ -282,9 +295,10 @@ function resetLayout() {
 </script>
 
 <template>
-  <div class="container flex flex-col">
+  <div ref="editorShell" class="container flex flex-col">
     <Progress v-if="isImgLoading" indeterminate class="absolute left-0 right-0 rounded-none" style="height: 2px;" />
     <EditorHeader
+      :brand-width="headerBrandWidth"
       @start-copy="startCopy"
       @end-copy="endCopy"
       @reset-layout="resetLayout"
@@ -415,7 +429,8 @@ function resetLayout() {
         </ResizablePanelGroup>
       </div>
 
-      <UploadImgDialog v-if="isShowUploadImgDialog" @upload-image="handleUploadImage" />
+      <MaterialLibraryDialog v-if="isShowUploadImgDialog && materialLibraryEnabled" />
+      <UploadImgDialog v-else-if="isShowUploadImgDialog" @upload-image="handleUploadImage" />
 
       <TableEditDialog v-if="isShowTableEditDialog" />
 

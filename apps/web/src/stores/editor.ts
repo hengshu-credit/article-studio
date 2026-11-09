@@ -1,9 +1,21 @@
 import type { EditorView } from '@codemirror/view'
+import { redoAction, undoAction } from '@md/shared/editor'
 import { t } from '@/i18n/translate'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 /** CodeMirror editor instance and basic document operations. */
 export const useEditorStore = defineStore(`editor`, () => {
-  const editor = ref<EditorView | null>(null)
+  const editor = shallowRef<EditorView | null>(null)
+
+  function undo() {
+    if (!useWorkspaceStore().history('undo') && editor.value)
+      undoAction(toRaw(editor.value) as EditorView)
+  }
+
+  function redo() {
+    if (!useWorkspaceStore().history('redo') && editor.value)
+      redoAction(toRaw(editor.value) as EditorView)
+  }
 
   let flushPendingContent: (() => void) | null = null
 
@@ -116,6 +128,8 @@ export const useEditorStore = defineStore(`editor`, () => {
 
   return {
     editor,
+    undo,
+    redo,
     registerContentFlush,
     unregisterContentFlush,
     flushContentToPostStore,

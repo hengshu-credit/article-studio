@@ -109,10 +109,14 @@ export default {
     sharePreview: `分享预览`,
   },
   about: {
-    title: `关于`,
-    description: `一款高度简洁的微信 Markdown 编辑器`,
-    followHint: `扫码关注公众号 Doocs，原创技术内容第一时间推送！`,
-    imageAlt: `Doocs Markdown 编辑器`,
+    title: `关于 Article Studio`,
+    description: `衡枢真信 · 联系我们`,
+    followHint: `扫码添加微信或关注公众号，交流使用体验与技术问题。`,
+    wechatAlt: `微信 itlubber 二维码`,
+    wechatLabel: `微信 · itlubber`,
+    officialAlt: `微信公众号 衡枢风控 二维码`,
+    officialLabel: `微信公众号 · 衡枢风控`,
+    officialHint: `回复「入群」加入交流`,
   },
   fund: {
     title: `赞赏`,

@@ -1,6 +1,7 @@
 import type { HeadingLevel, HeadingStyles, HeadingStyleType, PerThemeSettings, PerThemeSettingsMap, ThemeName } from '@md/shared/configs'
-import { ARTICLE_PRESETS, WECHAT_REFERENCE_FONT, WECHAT_REFERENCE_PRESET } from '@article-studio/article-kit'
+import { ARTICLE_PRESETS, componentPalette, WECHAT_REFERENCE_FONT, WECHAT_REFERENCE_PRESET } from '@article-studio/article-kit'
 import quoteCSS from '@article-studio/article-kit/blockquote.css?raw'
+import codeCSS from '@article-studio/article-kit/code.css?raw'
 import articleCSS from '@article-studio/article-kit/styles.css?raw'
 import referenceCSS from '@article-studio/article-kit/wechat-reference.css?raw'
 import { applyTheme } from '@md/core/theme'
@@ -159,14 +160,9 @@ export const useThemeStore = defineStore(`theme`, () => {
     try {
       const cssEditorStore = useCssEditorStore()
       const customCSS = cssEditorStore.getCurrentTabContent()
-      const hex = primaryColor.value.replace(/^#/, ``)
-      const expanded = /^[\da-f]{3,4}$/i.test(hex) ? [...hex].map(char => char + char).join(``) : hex
-      const channels = /^[\da-f]{6}(?:[\da-f]{2})?$/i.test(expanded)
-        ? [0, 2, 4].map(offset => Number.parseInt(expanded.slice(offset, offset + 2), 16))
-        : [36, 91, 131]
-      const tintedBackground = `rgba(${channels.join(`, `)}, 0.12)`
+      const palette = componentPalette({ primaryColor: primaryColor.value, fontFamily: fontFamily.value, fontSize: fontSize.value, lineHeight: lineHeight.value })
       const quoteBackground = blockquoteBackground.value === `default` || blockquoteBackground.value.includes(`color-mix`)
-        ? tintedBackground
+        ? palette.quoteTint
         : blockquoteBackground.value
 
       // Lazy import avoids Pinia circular init with marketplace store
@@ -179,7 +175,15 @@ export const useThemeStore = defineStore(`theme`, () => {
       await applyTheme({
         themeName: theme.value,
         themeCSS,
-        customCSS: `${articlePresetId.value === WECHAT_REFERENCE_PRESET ? referenceCSS : articleCSS}\n:root { --md-quote-tint: ${quoteBackground}; }\n${quoteCSS}\n${customCSS}`,
+        customCSS: `${articlePresetId.value === WECHAT_REFERENCE_PRESET ? referenceCSS : articleCSS}
+:root {
+  --md-quote-tint: ${quoteBackground};
+  --md-code-shadow: ${palette.codeShadow};
+  --studio-scrollbar-thumb: ${palette.scrollbarThumb};
+  --studio-scrollbar-hover: ${palette.scrollbarHover};
+  --studio-scrollbar-track: ${palette.scrollbarTrack};
+}
+${quoteCSS}\n${codeCSS}\n${customCSS}`,
         variables: {
           primaryColor: primaryColor.value,
           fontFamily: fontFamily.value,

@@ -34,6 +34,7 @@ import { useLocaleStore } from '@/stores/locale'
 import { usePostStore } from '@/stores/post'
 import { useRenderStore } from '@/stores/render'
 import { useUIStore } from '@/stores/ui'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 const renderStore = useRenderStore()
 const editorStore = useEditorStore()
@@ -41,6 +42,7 @@ const postStore = usePostStore()
 const uiStore = useUIStore()
 const authStore = useAuthStore()
 const localeStore = useLocaleStore()
+const workspace = useWorkspaceStore()
 const { readingTime } = storeToRefs(renderStore)
 const { editor } = storeToRefs(editorStore)
 const { currentPost } = storeToRefs(postStore)
@@ -264,6 +266,7 @@ const showDeviceToggle = computed(() => viewMode.value !== `edit` && !isMobile.v
     class="flex select-none items-center overflow-hidden px-3 py-1 text-xs text-muted-foreground max-md:px-4 max-md:py-1.5 max-md:pb-[max(0.375rem,env(safe-area-inset-bottom,0px))]"
   >
     <TooltipProvider :delay-duration="300">
+      <span v-if="workspace.enabled" class="mr-3 shrink-0" :class="workspace.error || !workspace.connected ? 'text-amber-600' : 'text-muted-foreground'" :title="workspace.error || '任一端撤销都会回退最近一次全局文章操作'" role="status">{{ workspace.label }}</span>
       <div class="flex shrink-0 items-center gap-2 sm:gap-3">
         <span v-if="isGoToLineActive" class="flex items-center gap-1">
           <Keyboard class="size-3 opacity-60" />

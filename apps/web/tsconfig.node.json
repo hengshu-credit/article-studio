@@ -3,5 +3,5 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true
   },
-  "include": ["vite.config.ts", "plugins/**/*.ts"]
+  "include": ["vite.config.ts", "plugins/**/*.ts", "server/workspace.ts", "server/materials.ts", "server/studio.ts", "src/services/workspace/model.ts", "src/services/materials/types.ts", "../../scripts/serve.ts"]
 }

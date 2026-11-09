@@ -109,10 +109,14 @@ export default {
     sharePreview: `共有プレビュー`,
   },
   about: {
-    title: `このアプリについて`,
-    description: `微信公式アカウント向けのシンプルな Markdown エディター`,
-    followHint: `QR コードをスキャンして Doocs の微信公式アカウントをフォローし、オリジナルの技術コンテンツを受け取りましょう。`,
-    imageAlt: `Doocs Markdown エディター`,
+    title: `Article Studio について`,
+    description: `衡枢真信 · お問い合わせ`,
+    followHint: `QR コードから微信の友だち追加や公式アカウントのフォローができます。`,
+    wechatAlt: `微信 itlubber の QR コード`,
+    wechatLabel: `微信 · itlubber`,
+    officialAlt: `微信公式アカウント 衡枢风控 の QR コード`,
+    officialLabel: `公式アカウント · 衡枢风控`,
+    officialHint: `「入群」と返信してコミュニティに参加`,
   },
   fund: {
     title: `サポート`,

@@ -2,6 +2,7 @@ import type { CustomComponentDef } from '@md/shared/types'
 import { WECHAT_REFERENCE_COMPONENTS } from './wechat-reference'
 
 export { applyComponentTheme, componentPalette, type ComponentTheme, DEFAULT_COMPONENT_THEME } from './component-theme'
+export { applyParagraphFormatting, NO_INDENT_MARKER } from './paragraph-format'
 
 export { decorateWeChatReference, WECHAT_REFERENCE_FONT, WECHAT_REFERENCE_PRESET, WECHAT_REFERENCE_SOURCE } from './wechat-reference'
 

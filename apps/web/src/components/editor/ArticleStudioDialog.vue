@@ -124,7 +124,7 @@ watch(open, (value) => {
         </div>
         <div v-if="theme.articlePresetId === WECHAT_REFERENCE_PRESET" class="rounded-xl border p-4 space-y-3">
           <p class="text-sm">
-            原文同款：14px 楷体、深红章节装饰、浅粉引言、浅色代码与 Mac 圆点。报告图片可配合 WeChatFigureV1 使用。
+            原文同款：14px 楷体、深红章节装饰、浅粉引言、浅色代码与 Mac 圆点。可从固定组件插入报表图片，或选择「图片与标语」组合。
           </p>
           <Button variant="outline" @click="createReferenceExample">
             新建同款排版示例
@@ -159,7 +159,7 @@ watch(open, (value) => {
           </Button>
         </div>
         <p class="text-xs text-muted-foreground leading-6">
-          主题与设置自动保存在此浏览器。固定组件使用 v1 名称，样式在本地代码中维护；新增风格版本时可保留历史文章排版。主题卡展示版式示意，正文以实时预览为准。
+          共享模式下，文章排版设置会同步到其他设备。固定组件使用 v1 名称，样式在本地代码中维护；新增风格版本时可保留历史文章排版。主题卡展示版式示意，正文以实时预览为准。
         </p>
       </div>
       <div v-else-if="tab === 'components'" class="flex-1 overflow-auto grid sm:grid-cols-2 gap-4 content-start p-1">

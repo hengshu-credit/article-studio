@@ -10,6 +10,8 @@ export function useAccountSyncBootstrap() {
   let cloudSyncReady = false
 
   async function ensureCloudSync(): Promise<void> {
+    if (import.meta.env.VITE_SHARED_WORKSPACE === 'true')
+      return
     if (!isSyncUiEnabled() || !authStore.isLoggedIn)
       return
 

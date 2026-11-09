@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type SearchTabType from '@/components/ui/search-tab/SearchTab.vue'
-import { Compartment, EditorState, Prec } from '@codemirror/state'
+import { Compartment, EditorState, Prec, Transaction } from '@codemirror/state'
 import { EditorView, keymap, placeholder } from '@codemirror/view'
-import { history, markdownSetup, replaceDocumentWithoutHistory, resetEditorHistory, theme } from '@md/shared/editor'
+import { history, markdownSetup, resetEditorHistory, theme } from '@md/shared/editor'
 import { toBase64 } from '@md/shared/utils/fileHelpers'
 import { createComponentCompletionExtension } from '@/composables/useComponentCompletion'
 import { useEditorRefresh } from '@/composables/useEditorRefresh'
@@ -17,13 +17,16 @@ import { jumpToAdjacentHeading } from '@/lib/markdown/headingNavigation'
 import { contentHasMath, loadMathJax, MATHJAX_READY_EVENT } from '@/lib/preview/mathjax'
 import { collectClipboardImages } from '@/lib/upload/clipboard-images'
 import { validateImageFile } from '@/lib/upload/validate-image'
+import { materialLibraryEnabled } from '@/services/materials/client'
 import { isUploadProviderConfigured } from '@/services/upload/provider-registry'
+import { syncEditorContent } from '@/services/workspace/editor-content'
 import { store } from '@/storage'
 import { useEditorStore } from '@/stores/editor'
 import { usePostStore } from '@/stores/post'
 import { useRenderStore } from '@/stores/render'
 import { useThemeStore } from '@/stores/theme'
 import { useUIStore } from '@/stores/ui'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 const SidebarAIToolbar = defineAsyncComponent(() => import('@/components/ai/SidebarAIToolbar.vue'))
 const SlashCommandMenu = defineAsyncComponent(() => import('@/components/editor/SlashCommandMenu.vue'))
@@ -36,9 +39,10 @@ const postStore = usePostStore()
 const renderStore = useRenderStore()
 const themeStore = useThemeStore()
 const uiStore = useUIStore()
+const workspace = useWorkspaceStore()
 const localizedAllComponents = useLocalizedAllComponents()
 const { upload } = useImageUploader()
-const { editorRefresh, scheduleEditorRefresh } = useEditorRefresh()
+const { editorRefresh, scheduleEditorRefresh, flushScheduledRefresh } = useEditorRefresh()
 
 const {
   visible: slashVisible,
@@ -76,9 +80,20 @@ const { toggleShowUploadImgDialog } = uiStore
 const showEditor = computed(() => viewMode.value !== `preview`)
 
 const codeMirrorView = shallowRef<EditorView | null>(null)
+let displayedPostId: string | undefined
 const themeCompartment = new Compartment()
 const placeholderCompartment = new Compartment()
 const historyCompartment = new Compartment()
+const editableCompartment = new Compartment()
+
+function editableExtensions() {
+  const editable = Boolean(currentPost.value)
+  return [EditorState.readOnly.of(!editable), EditorView.editable.of(editable)]
+}
+
+watch(() => currentPost.value?.id, () => {
+  codeMirrorView.value?.dispatch({ effects: editableCompartment.reconfigure(editableExtensions()) })
+})
 
 function editorPlaceholder() {
   return placeholder(t(`codemirror.contentPlaceholder`))
@@ -181,6 +196,9 @@ async function beforeImageUpload(file: File) {
     return false
   }
 
+  if (materialLibraryEnabled)
+    return true
+
   const imgHost = (await store.get(`imgHost`)) || `default`
   await store.set(`imgHost`, imgHost)
 
@@ -194,7 +212,7 @@ async function beforeImageUpload(file: File) {
   return true
 }
 
-function uploaded(imageUrl: string) {
+function uploaded(imageUrl: string, targetPostId = postStore.currentPostId, position?: number) {
   if (!imageUrl) {
     toast.error(t('editorPanel.uploadUnknownError'))
     return
@@ -203,6 +221,14 @@ function uploaded(imageUrl: string) {
     toggleShowUploadImgDialog(false)
   }, 1000)
   const markdownImage = `![](${imageUrl})`
+  if (targetPostId !== postStore.currentPostId) {
+    const target = postStore.getPostById(targetPostId)
+    if (target) {
+      const at = Math.min(position ?? target.content.length, target.content.length)
+      postStore.updatePostContent(targetPostId, `${target.content.slice(0, at)}\n${markdownImage}\n${target.content.slice(at)}`)
+    }
+    return
+  }
   if (codeMirrorView.value) {
     codeMirrorView.value.dispatch(codeMirrorView.value.state.replaceSelection(`\n${markdownImage}\n`))
   }
@@ -224,10 +250,12 @@ async function uploadImage(
   cb?: (url: string, data: string) => void,
   applyUrl?: boolean,
 ) {
+  const targetPostId = postStore.currentPostId
+  const position = codeMirrorView.value?.state.selection.main.head
   try {
     isImgLoading.value = true
     const useCompression = (await store.get(`useCompression`)) === `true`
-    if (useCompression)
+    if (useCompression && !materialLibraryEnabled)
       file = await compressImage(file)
 
     const url = await upload(file)
@@ -235,10 +263,10 @@ async function uploadImage(
       cb(url, await toBase64(file))
     }
     else {
-      uploaded(url)
+      uploaded(url, targetPostId, position)
     }
     if (applyUrl)
-      return uploaded(url)
+      return uploaded(url, targetPostId, position)
   }
   catch (err) {
     toast.error(err instanceof Error ? err.message : t('store.uploader.uploadFailed'))
@@ -336,29 +364,31 @@ function mdLocalToRemote() {
   dom.ondragover = evt => evt.preventDefault()
   dom.ondrop = async (evt) => {
     evt.preventDefault()
-    if (evt.dataTransfer == null || !Array.isArray(evt.dataTransfer.items)) {
+    if (evt.dataTransfer == null) {
       return
     }
 
-    for (const item of evt.dataTransfer.items.filter(item => item.kind === `file`)) {
-      item
-        .getAsFileSystemHandle()
-        .then(async (handle: { kind: string, getFile: () => any }) => {
-          if (handle.kind === `directory`) {
-            const list = (await showFileStructure(handle)) as {
-              path: string
-              file: File
-            }[]
-            const md = await getMd({ list })
-            uploadMdImg({ md, list })
-          }
-          else {
-            const file = await handle.getFile()
-            if (await beforeImageUpload(file)) {
-              uploadImage(file)
-            }
-          }
-        })
+    const images = Array.from(evt.dataTransfer.files).filter(file => file.type.startsWith('image/'))
+    if (images.length) {
+      for (const file of images) {
+        if (await beforeImageUpload(file))
+          await uploadImage(file)
+      }
+      return
+    }
+
+    for (const item of Array.from(evt.dataTransfer.items).filter(item => item.kind === `file`)) {
+      const handle = await (item as DataTransferItem & { getAsFileSystemHandle?: () => Promise<FileSystemHandle | null> }).getAsFileSystemHandle?.()
+      if (handle?.kind === `directory`) {
+        const list = (await showFileStructure(handle)) as { path: string, file: File }[]
+        const md = await getMd({ list })
+        await uploadMdImg({ md, list })
+      }
+      else if (handle?.kind === `file`) {
+        const file = await (handle as FileSystemFileHandle).getFile()
+        if (await beforeImageUpload(file))
+          await uploadImage(file)
+      }
     }
   }
 }
@@ -407,7 +437,7 @@ function createPasteHandler() {
 
         Promise.all(uniqueUrls.map(async (url) => {
           try {
-            const newUrl = enableImageReupload.value ? await upload(url) : url
+            const newUrl = materialLibraryEnabled || enableImageReupload.value ? await upload(url) : url
 
             for (const [id, info] of placeholderMap.entries()) {
               if (info.originalUrl === url) {
@@ -455,8 +485,9 @@ function createPasteHandler() {
 
 // --- CodeMirror creation ---
 function createFormTextArea(dom: HTMLDivElement) {
+  displayedPostId = currentPost.value?.id
   const state = EditorState.create({
-    doc: posts.value[currentPostIndex.value].content,
+    doc: posts.value[currentPostIndex.value]?.content ?? '',
     extensions: [
       markdownSetup({
         onSearch: openSearchWithSelection,
@@ -465,6 +496,7 @@ function createFormTextArea(dom: HTMLDivElement) {
         withoutHistory: true,
       }),
       historyCompartment.of(history()),
+      editableCompartment.of(editableExtensions()),
       Prec.high(keymap.of([
         { key: `Mod-Alt-ArrowUp`, run: view => jumpToAdjacentHeading(view, `prev`) },
         { key: `Mod-Alt-ArrowDown`, run: view => jumpToAdjacentHeading(view, `next`) },
@@ -474,6 +506,12 @@ function createFormTextArea(dom: HTMLDivElement) {
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           scheduleEditorRefresh()
+          if (update.transactions.every(transaction => transaction.annotation(Transaction.addToHistory) === false))
+            return
+          if (workspace.enabled) {
+            commitEditorContentToPost()
+            return
+          }
           clearTimeout(persistTimer.value)
           persistTimer.value = setTimeout(() => {
             commitEditorContentToPost()
@@ -516,14 +554,14 @@ async function preloadMathJaxIfNeeded(content: string) {
 
 let postSwitchGeneration = 0
 
-function flushEditorContentToPostAtIndex(index: number) {
+function flushEditorContentToPost(postId = displayedPostId) {
   clearTimeout(persistTimer.value)
   persistTimer.value = undefined
-  if (!codeMirrorView.value || index < 0)
+  if (!codeMirrorView.value || !postId || workspace.applyingRemote)
     return
 
   const value = codeMirrorView.value.state.doc.toString()
-  const post = posts.value[index]
+  const post = postStore.getPostById(postId)
   if (!post || value === post.content)
     return
 
@@ -532,7 +570,7 @@ function flushEditorContentToPostAtIndex(index: number) {
 }
 
 function commitEditorContentToPost() {
-  flushEditorContentToPostAtIndex(currentPostIndex.value)
+  flushEditorContentToPost()
 }
 
 onMounted(() => {
@@ -591,49 +629,47 @@ watch(locale, () => {
   editorRefresh()
 })
 
-function syncEditorToPostContent(content: string) {
+function syncEditorToPostContent(content: string, reveal: boolean, switched: boolean) {
   const view = codeMirrorView.value
   if (!view)
     return
 
-  const currentContent = view.state.doc.toString()
-  if (currentContent === content)
+  const changed = syncEditorContent(view, content, reveal)
+  if (switched || changed)
+    resetEditorHistory(view, historyCompartment)
+  if (!changed)
     return
 
   const generation = ++postSwitchGeneration
-  replaceDocumentWithoutHistory(view, content)
-  resetEditorHistory(view, historyCompartment)
   void preloadMathJaxIfNeeded(content).then(() => {
     if (generation !== postSwitchGeneration)
       return
-    editorRefresh()
+    flushScheduledRefresh()
   })
 }
 
-watch(currentPostIndex, (newIndex, oldIndex) => {
-  if (oldIndex !== undefined && oldIndex >= 0)
-    flushEditorContentToPostAtIndex(oldIndex)
-
-  const post = posts.value[newIndex]
-  if (!post)
-    return
-  syncEditorToPostContent(post.content)
-})
-
-/** Refresh editor when posts change externally (e.g. cloud sync) even if index is unchanged */
+/** Track document identity, not its position in a reordered shared library. */
 watch(
-  () => currentPost.value?.content,
-  (content) => {
-    if (content == null)
-      return
-    syncEditorToPostContent(content)
+  [() => currentPost.value?.id, () => currentPost.value?.content, () => workspace.historyReveal?.revision],
+  ([id, content, revision], [, , previousRevision]) => {
+    const switched = id !== displayedPostId
+    if (switched && !workspace.enabled)
+      flushEditorContentToPost()
+    displayedPostId = id
+    const reveal = revision !== previousRevision && workspace.historyReveal?.postId === id
+    syncEditorToPostContent(content ?? '', reveal, switched)
   },
 )
 
 const historyTimer = ref<ReturnType<typeof setTimeout>>()
 onMounted(() => {
   historyTimer.value = setInterval(() => {
+    if (workspace.enabled)
+      return
     const currentPost = posts.value[currentPostIndex.value]
+
+    if (!currentPost)
+      return
 
     const pre = (currentPost.history || [])[0]?.content
     if (pre === currentPost.content) {

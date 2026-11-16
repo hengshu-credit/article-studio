@@ -34,7 +34,7 @@ async function fillBilibiliDraftInPage(title, html) {
   ).find(button =>
     ['保存为草稿', '儲存為草稿', 'Save as draft'].includes(button.textContent.trim())
   )
-  if (!titleInput || !counter || !draftButton || draftButton.disabled) {
+  if (!titleInput || !counter || !draftButton) {
     return { success: false, message: 'B站专栏缺少可用的标题、字数统计或草稿按钮' }
   }
   const images = () => editor.editor?.storage?.biliImage?.allImages || []
@@ -54,14 +54,15 @@ async function fillBilibiliDraftInPage(title, html) {
   editor.dispatchEvent(
     new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data })
   )
-  if (!(await waitFor(() => wordCount() > 0, 5000))) {
+  const source = document.createElement('template')
+  source.innerHTML = html
+  const expected = source.content.querySelectorAll('img[src]').length
+  const imageOnly = expected > 0 && !source.content.textContent.trim()
+  if (!(await waitFor(() => wordCount() > 0 || (imageOnly && images().length >= expected), 5000))) {
     return { success: false, message: 'B站未识别正文（字数为 0），已停止保存' }
   }
 
-  if (/<img[\s/>]/i.test(html)) {
-    const source = document.createElement('template')
-    source.innerHTML = html
-    const expected = source.content.querySelectorAll('img[src]').length
+  if (expected > 0) {
     let uploaded = 0
     let failed = 0
     const settled = await waitFor(() => {
@@ -77,6 +78,8 @@ async function fillBilibiliDraftInPage(title, html) {
 
   const saveTip = () => document.querySelector('.extension-suffix .save-tip')
   const previousTip = saveTip()?.textContent
+  if (!(await waitFor(() => !draftButton.disabled, 5000)))
+    return { success: false, message: 'B站草稿保存按钮暂不可用，请在当前编辑页检查' }
   draftButton.click()
   const confirmed = await waitFor(() => {
     const tip = saveTip()

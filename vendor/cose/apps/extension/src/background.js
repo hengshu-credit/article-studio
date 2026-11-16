@@ -688,7 +688,7 @@ async function syncDraftWithImages(platformId, content) {
       target: { tabId: tab.id },
       world: 'MAIN',
       func: uploadInEditor,
-      args: [image, cover, origin],
+      args: [image, cover, origin, 30000, platformId === 'bilibili'],
     })
     if (!reply?.result?.ok)
       throw new Error(reply?.result?.error || '平台图片上传未完成')

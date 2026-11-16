@@ -21,9 +21,11 @@ test('each target uploads its own original once and only replaces its image dest
   assert.equal(content.body, html)
 })
 
-test('verified native HTML import receives original bytes, and temporary upload URLs cannot escape', async () => {
-  const result = await resolveBodyImages(content, () => assert.fail('native HTML importer handles these images'), true)
-  assert.equal(result.body, html.replaceAll(bodyImage.key, bodyImage.data))
+test('verified HTML import handles an unreadable external original but local files require upload', async () => {
+  const external = { ...bodyImage, data: '', sourceUrl: 'https://original.example/img.jpg' }
+  const result = await resolveBodyImages({ ...content, images: [external] }, () => assert.fail('native HTML importer handles external URL'), true)
+  assert.equal(result.body, html.replaceAll(bodyImage.key, external.sourceUrl))
+  await assert.rejects(resolveBodyImages(content, async () => 'data:image/png;base64,YQ==', true), /图片地址无效/)
   await assert.rejects(resolveBodyImages(content, async () => 'blob:temporary'), /图片地址无效/)
   await assert.rejects(resolveBodyImages(content, async () => { throw new Error('上传失败') }), /上传失败/)
 })

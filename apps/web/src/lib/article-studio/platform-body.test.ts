@@ -5,9 +5,9 @@ import starter from '@article-studio/article-kit/starter.md?raw'
 import { initRenderer } from '@md/core/renderer'
 import { renderMarkdown } from '@md/core/utils'
 import { describe, expect, it, vi } from 'vitest'
+import { buildPublishTasks } from '@/services/publish/tasks'
 // @ts-expect-error COSE ships this adapter as plain JavaScript.
 import { fillJuejinContent } from '../../../../../vendor/cose/packages/core/src/platforms/juejin.js'
-import { buildPublishTasks } from '@/services/publish/tasks'
 
 async function deliver(source: string, html: string, channels: string[]) {
   const accounts: PostAccount[] = channels.map(type => ({ type, uid: type, title: type, displayName: '', home: '', icon: '', checked: true, loggedIn: true }))

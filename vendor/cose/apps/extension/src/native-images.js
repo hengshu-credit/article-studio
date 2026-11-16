@@ -1,5 +1,5 @@
 /** Serialized into the platform tab. All file handling runs against its own editor. */
-export async function uploadInEditor(image, cover, expectedOrigin, timeout = 30000) {
+export async function uploadInEditor(image, cover, expectedOrigin, timeout = 30000, requireEmptyDraft = false) {
   try {
     return { ok: true, url: await upload() }
   } catch (error) {
@@ -111,6 +111,8 @@ export async function uploadInEditor(image, cover, expectedOrigin, timeout = 300
     const before = readText()
     const previousImages = new Set(editor.querySelectorAll('img'))
     const previousFigures = new Set(editor.querySelectorAll('figure'))
+    if (requireEmptyDraft && (before.trim() || previousImages.size || doc.querySelector('textarea.title-input__inner')?.value))
+      throw new Error('已打开的草稿有内容，请在空白草稿中上传图片')
 
     target.focus()
     function selectRange(range) {
@@ -187,9 +189,9 @@ export async function resolveBodyImages(content, upload, importsHtmlImages = fal
   const urls = new Map()
   for (const image of images || []) {
     if (!post.body?.includes(image.key) && !post.markdown?.includes(image.key)) continue
-    if (importsHtmlImages) {
-      // These adapters import prepared HTML and independently confirm platform-side storage.
-      urls.set(image.key, image.data || image.sourceUrl)
+    if (importsHtmlImages && image.sourceUrl) {
+      // These adapters can import CORS-restricted external URLs and confirm native storage.
+      urls.set(image.key, image.sourceUrl)
     } else {
       const url = new URL(await upload(image))
       if (!['https:', 'http:'].includes(url.protocol)) throw new Error('平台图片地址无效')

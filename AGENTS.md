@@ -1,6 +1,7 @@
 # Article Studio
 
-- 不新建分支，不 stage、commit 或 push，除非用户明确要求。
+- 每次完成代码修改并验证后，在当前分支自动暂存并创建本地提交，让该任务的所有新增、修改和删除都能在 Git 历史中查看。
+- 只有用户明确要求时才新建分支或推送到远端。
 - 不使用子智能体，除非用户明确要求。
 - 保留 doocs/md 的编辑器和 doocs/cose 的平台适配能力。
 - 本地可维护的文章规范放在 packages/article-kit，v1 组件命名和属性契约保持兼容；组件外观通过 applyComponentTheme 随当前主题统一适配。

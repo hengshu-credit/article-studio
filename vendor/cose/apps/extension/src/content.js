@@ -1,5 +1,6 @@
 // Content Script - 在 md.doocs.org 或本地开发环境中运行
 // 注入 $cose 全局对象供页面使用
+import { createSyncSender } from './sync-sender.js'
 
 console.log('[COSE Content Script] Loaded!')
 console.log('[COSE Content Script] URL:', window.location.href)
@@ -249,6 +250,7 @@ console.log('[COSE Content Script] Hostname:', window.location.hostname)
     (window.location.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(window.location.hostname)) ||
     window.location.origin === 'https://md.doocs.org'
   if (!isEditorOrigin) return
+  const sendSync = createSyncSender(chrome.runtime)
 
   // 注入脚本到页面主世界
   const script = document.createElement('script')
@@ -290,11 +292,7 @@ console.log('[COSE Content Script] Hostname:', window.location.hostname)
           result = await chrome.runtime.sendMessage({ type: 'GET_DEBUG_LOGS' })
           break
         case 'SYNC_TO_PLATFORM':
-          result = await chrome.runtime.sendMessage({
-            type: 'SYNC_TO_PLATFORM',
-            platformId: payload?.platformId,
-            content: payload?.content,
-          })
+          result = await sendSync(payload.platformId, payload.content)
           break
         default:
           result = { error: 'Unknown type' }

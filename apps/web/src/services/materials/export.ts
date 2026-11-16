@@ -25,10 +25,9 @@ export async function inlineMaterialImageSource(source: string, origin = window.
 }
 
 /** Only the final artifact embeds bytes. Drafts, sync and undo keep short references. */
-export async function inlineMaterialImages(html: string, origin = window.location.origin): Promise<string> {
+export async function inlineMaterialImages(html: string, origin = window.location.origin, loaded = new Map<string, Promise<string>>()): Promise<string> {
   const root = document.createElement('div')
   root.innerHTML = html
-  const loaded = new Map<string, Promise<string>>()
   for (const img of root.querySelectorAll('img')) {
     const source = img.getAttribute('src')
     if (!source)

@@ -23,6 +23,32 @@ function render(markdown: string, reference = true): string {
 }
 
 describe(`weChat reference theme`, () => {
+  it(`inlines one theme-colored square per unordered item and preserves nested numbering and links`, async () => {
+    const markdown = `- [文档](https://example.com/docs)\n  1. 有序子项\n- • 原文符号\n\n1. 有序父项\n   - 无序子项`
+    await applyTheme({
+      themeName: `default`,
+      customCSS: referenceCSS,
+      variables: { primaryColor: `#28756b`, fontFamily: WECHAT_REFERENCE_FONT, fontSize: `14px`, lineHeight: `1.6` },
+    })
+    const root = document.createElement(`div`)
+    root.innerHTML = juice(`${await getStylesToAdd()}${render(markdown)}`)
+    const items = [...root.querySelectorAll<HTMLElement>(`ul > li`)]
+    expect(items).toHaveLength(3)
+    for (const item of items) {
+      const square = item.firstElementChild as HTMLElement
+      expect(square.getAttribute(`aria-hidden`)).toBe(`true`)
+      expect(square.style.backgroundColor).toBe(`rgb(40, 117, 107)`)
+      expect(square.style.width).toBe(`6px`)
+      expect(item.style.overflowWrap).toBe(`anywhere`)
+    }
+    expect(items[0].textContent.trimStart()).toMatch(/^文档/)
+    expect(items[0].querySelector(`a`)?.getAttribute(`href`)).toBe(`https://example.com/docs`)
+    expect(items[1].textContent.trim()).toBe(`• 原文符号`)
+    expect(root.querySelectorAll(`ol > li > .wechat-list-square`)).toHaveLength(0)
+    expect(root.querySelector(`ol > li`)?.textContent).toMatch(/^1\. /)
+    expect(render(markdown, false)).not.toContain(`wechat-list-square`)
+  })
+
   it(`turns chapter and subsection numbers into real nodes, resetting subsections per chapter`, () => {
     const root = document.createElement(`div`)
     root.innerHTML = render(`## 概览\n\n### 数据\n\n### 检查\n\n## 实验\n\n### 结果`)
@@ -187,7 +213,11 @@ describe(`weChat reference theme`, () => {
     expect(pre.style.backgroundColor).toBe(`rgb(250, 250, 250)`)
     expect(pre.style.boxShadow).toBe(`0 2px 10px ${shadow}`)
     expect(code.style.fontSize).toBe(`12px`)
-    expect(code.style.lineHeight).toBe(`26px`)
+    expect(pre.querySelector<HTMLElement>(`.mac-sign`)!.style.height).toBe(`20px`)
+    expect(pre.style.lineHeight).toBe(`21px`)
+    expect(code.style.paddingTop).toBe(`8px`)
+    expect(code.style.lineHeight).toBe(`inherit`)
+    expect(code.querySelector<HTMLElement>(`span.hljs-keyword`)!.style.lineHeight).toBe(`inherit`)
     expect(root.querySelector(`style, link`)).toBeNull()
     expect(root.innerHTML).not.toMatch(/var\(--|color-mix\(/)
     expect(root.textContent).toContain(`pd.cut`)

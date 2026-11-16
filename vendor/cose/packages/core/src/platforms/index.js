@@ -20,7 +20,7 @@ import { TencentCloudPlatform } from './tencentcloud.js'
 import { MediumPlatform } from './medium.js'
 import { SspaiPlatform } from './sspai.js'
 import { SohuPlatform } from './sohu.js'
-import { BilibiliPlatform } from './bilibili.js'
+import { BilibiliPlatform, syncBilibiliContent } from './bilibili.js'
 import { WeiboPlatform } from './weibo.js'
 import { AliyunPlatform } from './aliyun.js'
 import { HuaweiCloudPlatform } from './huaweicloud.js'
@@ -114,6 +114,7 @@ const SYNC_HANDLERS = {
   juejin: syncJuejinContent,
   wechat: syncWechatContent,
   zhihu: syncZhihuContent,
+  bilibili: syncBilibiliContent,
   toutiao: syncToutiaoContent,
   wangyihao: syncWangyihaoContent,
 }

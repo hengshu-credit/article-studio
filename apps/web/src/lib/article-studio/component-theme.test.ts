@@ -62,7 +62,10 @@ describe(`shared component theme`, () => {
     expect(dom.textContent).toContain(`10,000 条`)
   })
 
-  it.each([`#c00000`, `#28756b`])(`keeps a compact figure/banner with shared thumbnail and delivery styling in %s`, (primaryColor) => {
+  it.each([
+    [`#c00000`, `rgb(239, 191, 191)`, `rgba(192, 0, 0, 0.18)`],
+    [`#28756b`, `rgb(201, 221, 218)`, `rgba(40, 117, 107, 0.18)`],
+  ])(`keeps a compact figure/banner with shared thumbnail and delivery styling in %s`, (primaryColor, border, shadow) => {
     const theme = { ...DEFAULT_COMPONENT_THEME, primaryColor, fontSize: `14px` }
     const component = ARTICLE_COMPONENTS.find(item => item.name === `WeChatFigureBannerV1`)!
     const markdown = `<WeChatFigureBannerV1 src="https://example.com/report.png" text="用数据检验观点，用代码记录方法" alt="策略上线报告" />`
@@ -78,8 +81,8 @@ describe(`shared component theme`, () => {
     expect(img.style.width).toBe(`100%`)
     expect(img.style.height).toBe(`auto`)
     expect(img.style.maxHeight).toBe(`none`)
-    expect(img.style.borderColor).toBe(`rgb(222, 222, 222)`)
-    expect(img.style.boxShadow).toBe(`0 0 5px rgba(0, 0, 0, 0.18)`)
+    expect(img.style.borderColor).toBe(border)
+    expect(img.style.boxShadow).toBe(`0 0 5px ${shadow}`)
     expect(frame.style.marginBottom).toBe(`0px`)
     expect(banner.style.marginTop).toBe(`4px`)
     expect(banner.style.padding).toBe(`2px 8px`)

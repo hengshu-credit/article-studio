@@ -24,7 +24,7 @@ export const WECHAT_REFERENCE_SOURCE = {
 
 const font = `font-family:${WECHAT_REFERENCE_FONT};font-size:14px;`
 const primary = WECHAT_REFERENCE_SOURCE.primary
-const reportImage = `<section data-wechat-figure-frame style="margin:0 3px;line-height:0;"><img src="{{src}}" alt="{{alt}}" style="display:block;width:100%;max-width:100%;height:auto;margin:0;box-sizing:border-box;border:1px solid #dedede;border-radius:0;box-shadow:0 0 5px rgba(0,0,0,0.18);" /></section>`
+const reportImage = `<section data-wechat-figure-frame style="margin:0 3px;line-height:0;"><img src="{{src}}" alt="{{alt}}" style="display:block;width:100%;max-width:100%;height:auto;margin:0;box-sizing:border-box;border-radius:0;" /></section>`
 
 export const WECHAT_REFERENCE_COMPONENTS: CustomComponentDef[] = [
   {
@@ -154,6 +154,18 @@ export function decorateWeChatReference(html: string, referenceTheme: boolean): 
   const root = document.createElement(`div`)
   root.innerHTML = html
   if (referenceTheme) {
+    for (const item of root.querySelectorAll(`ul > li`)) {
+      // The Markdown renderer writes its bullet into the first text node.
+      const first = item.firstChild
+      if (item.classList.contains(`listitem`) && first instanceof Text && first.data.startsWith(`• `))
+        first.deleteData(0, 2)
+
+      const square = document.createElement(`span`)
+      square.className = `wechat-list-square`
+      square.setAttribute(`aria-hidden`, `true`)
+      square.textContent = `\u00A0`
+      item.prepend(square)
+    }
     let chapterIndex = 0
     let subsectionIndex = 0
     for (const heading of root.querySelectorAll<HTMLElement>(`h2, h3`)) {

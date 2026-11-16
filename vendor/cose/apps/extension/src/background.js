@@ -1,6 +1,9 @@
+import { resolveBodyImages, uploadInEditor } from './native-images.js'
+
 // 平台配置
 import { PLATFORMS, LOGIN_CHECK_CONFIG, SYNC_HANDLERS } from '@cose/core/src/platforms/index.js'
 import { qianfanIntercept } from '@cose/core/src/platforms/qianfan.js'
+import { readSyncContent, retryTabEdit } from './sync-receiver.js'
 import { convertAvatarToBase64 } from '@cose/detection/src/utils.js'
 // [DISABLED] import { fillAlipayOpenContent } from '@cose/core/src/platforms/alipayopen.js'
 
@@ -397,7 +400,7 @@ async function addTabToSyncGroup(tabId, windowId) {
   try {
     if (currentSyncGroupId === null) {
       // 创建新组
-      currentSyncGroupId = await chrome.tabs.group({ tabIds: tabId })
+      currentSyncGroupId = await retryTabEdit(() => chrome.tabs.group({ tabIds: tabId }))
       // 设置组的样式，使用时间戳作为标题
       const now = new Date()
       const timestamp = `${now.getMonth() + 1}/${now.getDate()} ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
@@ -408,7 +411,7 @@ async function addTabToSyncGroup(tabId, windowId) {
       })
     } else {
       // 添加到现有组
-      await chrome.tabs.group({ tabIds: tabId, groupId: currentSyncGroupId })
+      await retryTabEdit(() => chrome.tabs.group({ tabIds: tabId, groupId: currentSyncGroupId }))
     }
   } catch (error) {
     console.error('[COSE] 添加标签到组失败:', error)
@@ -460,7 +463,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 })
 
 async function handleMessage(request, sender) {
-  console.log(`[COSE] handleMessage received type: ${request.type}`, request)
+  console.log(`[COSE] handleMessage received type: ${request.type}`)
   switch (request.type) {
     case 'GET_PLATFORMS':
       return { platforms: PLATFORMS }
@@ -475,7 +478,7 @@ async function handleMessage(request, sender) {
       currentSyncGroupId = null
       return { success: true }
     case 'SYNC_TO_PLATFORM':
-      return await syncToPlatform(request.platformId, request.content)
+      return await syncDraftWithImages(request.platformId, await readSyncContent(request, sender, chrome.tabs))
     case 'CACHE_USER_INFO':
       // 缓存用户信息
       if (request.platform === 'xiaohongshu' && request.userInfo) {
@@ -675,8 +678,41 @@ async function pasteWithDebugger(tabId) {
   }
 }
 
+// Each platform resolves its own copy using its own authenticated editor.
+async function syncDraftWithImages(platformId, content) {
+  const platform = PLATFORMS.find(p => p?.id === platformId)
+  if (!platform || !content.images?.length) return syncToPlatform(platformId, content, {})
+  const origin = new URL(platform.publishUrl).origin
+  async function upload(tab, image, cover = false) {
+    const [reply] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN',
+      func: uploadInEditor,
+      args: [image, cover, origin],
+    })
+    if (!reply?.result?.ok)
+      throw new Error(reply?.result?.error || '平台图片上传未完成')
+    return reply.result.url
+  }
+  let coverHandled = false
+  let warning
+  const images = {
+    prepare: tab => resolveBodyImages(content, image => upload(tab, image), ['zhihu', 'bilibili'].includes(platformId)),
+    async cover(tab) {
+      const image = content.images.find(image => image.key === content.thumb)
+      if (coverHandled || !image) return
+      coverHandled = true
+      try { await upload(tab, image, true) }
+      catch (error) { warning = error.message }
+    },
+  }
+  const result = await syncToPlatform(platformId, content, images)
+  if (result.success) await images.cover({ id: result.tabId })
+  return { ...result, warning }
+}
+
 // 同步到平台
-async function syncToPlatform(platformId, content) {
+async function syncToPlatform(platformId, content, images) {
   const platform = PLATFORMS.find(p => p && p.id === platformId)
   if (!platform || !platform.publishUrl) {
     return { success: false, message: '暂不支持该平台' }
@@ -691,7 +727,7 @@ async function syncToPlatform(platformId, content) {
       console.log(`[COSE] 使用 ${platformId} 平台特定同步处理器`)
       // 创建新标签页（对于微信等需要特殊处理的平台，使用首页）
       const initialUrl = platformId === 'wechat' ? 'https://mp.weixin.qq.com/' : platform.publishUrl
-      tab = await chrome.tabs.create({ url: initialUrl, active: false })
+      tab = await retryTabEdit(() => chrome.tabs.create({ url: initialUrl, active: false }))
       await addTabToSyncGroup(tab.id, tab.windowId)
 
       // 调用平台特定处理器
@@ -700,6 +736,7 @@ async function syncToPlatform(platformId, content) {
         waitForTab,
         addTabToSyncGroup,
         PLATFORMS,
+        images,
       }
       return await syncHandler(tab, content, helpers)
     }
@@ -725,7 +762,7 @@ async function syncToPlatform(platformId, content) {
           const targetUrl = `https://xie.infoq.cn/draft/${draftId}`
           console.log('[COSE] InfoQ 创建草稿成功，ID:', draftId)
 
-          tab = await chrome.tabs.create({ url: targetUrl, active: false })
+          tab = await retryTabEdit(() => chrome.tabs.create({ url: targetUrl, active: false }))
           await addTabToSyncGroup(tab.id, tab.windowId)
           await waitForTab(tab.id)
         } else {
@@ -778,7 +815,7 @@ async function syncToPlatform(platformId, content) {
           const targetUrl = `https://www.jianshu.com/writer#/notebooks/${notebookId}/notes/${noteId}`
           console.log('[COSE] 简书创建文章成功，ID:', noteId)
 
-          tab = await chrome.tabs.create({ url: targetUrl, active: false })
+          tab = await retryTabEdit(() => chrome.tabs.create({ url: targetUrl, active: false }))
           await addTabToSyncGroup(tab.id, tab.windowId)
           await waitForTab(tab.id)
         } else {
@@ -853,6 +890,7 @@ async function syncToPlatform(platformId, content) {
       // 等待页面稳定
       await new Promise(resolve => setTimeout(resolve, 1000))
 
+      if (images.prepare) content = await images.prepare(tab)
       // 使用剪贴板 HTML（带完整样式）或降级到 body
       const htmlContent = content.wechatHtml || content.body
       console.log('[COSE] 小红书 HTML 内容长度:', htmlContent?.length || 0)
@@ -1053,8 +1091,9 @@ async function syncToPlatform(platformId, content) {
       // 等待页面稳定
       await new Promise(resolve => setTimeout(resolve, 500))
 
+      if (images.prepare) content = await images.prepare(tab)
       // 使用 Markdown 内容
-      const markdownContent = content.markdown || content.body || ''
+      const markdownContent = content.markdown ?? content.body ?? ''
       console.log('[COSE] Twitter Articles Markdown 内容长度:', markdownContent?.length || 0)
 
       // 第三步：填充标题和内容
@@ -1398,7 +1437,8 @@ async function syncToPlatform(platformId, content) {
         await waitForTab(tab.id)
         await new Promise(resolve => setTimeout(resolve, 2000))
 
-        const markdownContent = content.markdown || content.body || ''
+        if (images.prepare) content = await images.prepare(tab)
+        const markdownContent = content.markdown ?? content.body ?? ''
         console.log('[COSE] 百度千帆 Markdown 内容长度:', markdownContent?.length || 0)
 
         // 填充标题和内容
@@ -1526,7 +1566,7 @@ async function syncToPlatform(platformId, content) {
       // 等待页面加载
       await new Promise(resolve => setTimeout(resolve, 2000))
 
-      const markdownContent = content.markdown || content.body || ''
+      const markdownContent = content.markdown ?? content.body ?? ''
       console.log('[COSE] 支付宝开放平台 Markdown 内容长度:', markdownContent?.length || 0)
 
       // 使用导入的填充函数
@@ -1561,11 +1601,12 @@ async function syncToPlatform(platformId, content) {
       }
 
       // 直接打开发布页面
-      tab = await chrome.tabs.create({ url: targetUrl, active: false })
+      tab = await retryTabEdit(() => chrome.tabs.create({ url: targetUrl, active: false }))
       await addTabToSyncGroup(tab.id, tab.windowId)
       await waitForTab(tab.id)
     }
 
+    if (images.prepare) content = await images.prepare(tab)
     // 微信公众号：直接注入 HTML 到编辑器
     if (platformId === 'wechat') {
       // 使用剪贴板 HTML（带完整样式）或降级到 body
@@ -1925,113 +1966,6 @@ async function syncToPlatform(platformId, content) {
       return { success: true, message: '已同步到搜狐号', tabId: tab.id }
     }
 
-    // B站专栏：使用 UEditor execCommand 插入 HTML
-    if (platformId === 'bilibili') {
-      // 使用剪贴板 HTML（带完整样式）或降级到 body
-      const htmlContent = content.wechatHtml || content.body
-      console.log('[COSE] B站专栏 HTML 内容长度:', htmlContent?.length || 0)
-
-      // 等待 UEditor 就绪
-      const waitForEditor = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => {
-          return new Promise(resolve => {
-            const startTime = Date.now()
-            const maxWait = 10000
-
-            const check = () => {
-              const UE = window.UE
-              if (UE && UE.instants && UE.instants['ueditorInstant0']) {
-                const editor = UE.instants['ueditorInstant0']
-                if (editor.isReady) {
-                  console.log('[COSE] UEditor 已就绪，耗时:', Date.now() - startTime, 'ms')
-                  resolve({ ready: true, time: Date.now() - startTime })
-                  return
-                }
-              }
-
-              if (Date.now() - startTime > maxWait) {
-                console.log('[COSE] UEditor 等待超时')
-                resolve({ ready: false, timeout: true })
-                return
-              }
-
-              setTimeout(check, 100)
-            }
-            check()
-          })
-        },
-        world: 'MAIN',
-      })
-
-      console.log('[COSE] B站专栏编辑器状态:', waitForEditor)
-
-      // 填充标题和内容（一次性完成）
-      const fillResult = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: (title, htmlBody) => {
-          // 填充标题
-          const titleInput = document.querySelector('textarea')
-          if (titleInput && title) {
-            titleInput.focus()
-            titleInput.value = title
-            titleInput.dispatchEvent(new Event('input', { bubbles: true }))
-            titleInput.dispatchEvent(new Event('change', { bubbles: true }))
-            console.log('[COSE] B站专栏标题填充成功')
-          }
-
-          // 填充内容
-          const UE = window.UE
-          if (!UE || !UE.instants) {
-            return { success: false, error: 'UEditor not found' }
-          }
-
-          const editor = UE.instants['ueditorInstant0']
-          if (!editor) {
-            return { success: false, error: 'UEditor instance not found' }
-          }
-
-          // 清空并插入内容
-          editor.setContent('')
-          editor.execCommand('inserthtml', htmlBody)
-          editor.fireEvent('contentchange')
-
-          console.log('[COSE] B站专栏内容已填充')
-          return {
-            success: true,
-            contentLength: editor.getContentLength(),
-          }
-        },
-        args: [content.title, htmlContent],
-        world: 'MAIN',
-      })
-
-      console.log('[COSE] B站专栏填充结果:', fillResult)
-
-      // 短暂等待后点击存草稿
-      await new Promise(resolve => setTimeout(resolve, 300))
-
-      // 点击存草稿按钮
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => {
-          const saveDraftBtn = Array.from(document.querySelectorAll('button')).find(
-            b => b.textContent && b.textContent.includes('存草稿')
-          )
-          if (saveDraftBtn) {
-            saveDraftBtn.click()
-            console.log('[COSE] B站专栏已点击存草稿')
-          }
-        },
-        world: 'MAIN',
-      })
-
-      // 等待保存完成
-      await new Promise(resolve => setTimeout(resolve, 500))
-
-      return { success: true, message: '已同步并保存草稿到B站专栏', tabId: tab.id }
-    }
-
     // 微博头条：使用 ProseMirror 编辑器
     if (platformId === 'weibo') {
       // 等待页面完全加载
@@ -2075,6 +2009,7 @@ async function syncToPlatform(platformId, content) {
       // 等待内容注入完成
       await new Promise(resolve => setTimeout(resolve, 1000))
 
+      await images.cover?.(tab)
       // 点击保存草稿按钮
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -2102,7 +2037,7 @@ async function syncToPlatform(platformId, content) {
       await new Promise(resolve => setTimeout(resolve, 3000))
 
       // 阿里云使用 Markdown 编辑器
-      const markdownContent = content.markdown || content.body || ''
+      const markdownContent = content.markdown ?? content.body ?? ''
       console.log('[COSE] 阿里云开发者社区 Markdown 内容长度:', markdownContent?.length || 0)
 
       // 填充标题和内容
@@ -2164,7 +2099,7 @@ async function syncToPlatform(platformId, content) {
       await new Promise(resolve => setTimeout(resolve, 3000))
 
       // 火山引擎使用 Markdown 编辑器
-      const markdownContent = content.markdown || content.body || ''
+      const markdownContent = content.markdown ?? content.body ?? ''
       console.log('[COSE] 火山引擎开发者社区 Markdown 内容长度:', markdownContent?.length || 0)
 
       // 填充标题和内容
@@ -2235,7 +2170,7 @@ async function syncToPlatform(platformId, content) {
       await new Promise(resolve => setTimeout(resolve, 3000))
 
       // 华为云使用 Markdown 编辑器
-      const markdownContent = content.markdown || content.body || ''
+      const markdownContent = content.markdown ?? content.body ?? ''
       console.log('[COSE] 华为云开发者博客 Markdown 内容长度:', markdownContent?.length || 0)
 
       // 检查当前编辑器类型，如果不是 Markdown 则切换
@@ -2428,6 +2363,7 @@ async function syncToPlatform(platformId, content) {
       // 等待内容注入完成
       await new Promise(resolve => setTimeout(resolve, 1000))
 
+      await images.cover?.(tab)
       // 点击保存草稿按钮
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -2454,7 +2390,7 @@ async function syncToPlatform(platformId, content) {
     // 华为开发者文章：使用 ACE Editor (Markdown 编辑器)
     if (platformId === 'huaweidev') {
       // 华为开发者文章使用 Markdown 编辑器
-      const markdownContent = content.markdown || content.body || ''
+      const markdownContent = content.markdown ?? content.body ?? ''
       console.log('[COSE] 华为开发者文章 Markdown 内容长度:', markdownContent?.length || 0)
 
       // 注入异步弹窗监听器，并执行主流程
@@ -3027,7 +2963,7 @@ async function syncToPlatform(platformId, content) {
       await new Promise(resolve => setTimeout(resolve, 3000))
 
       // 使用 Markdown 内容
-      const markdownContent = content.markdown || content.body || ''
+      const markdownContent = content.markdown ?? content.body ?? ''
       console.log('[COSE] 电子发烧友 Markdown 内容长度:', markdownContent?.length || 0)
 
       // 填充标题和内容
@@ -3182,7 +3118,7 @@ async function syncToPlatform(platformId, content) {
     // 豆瓣：向首页分享框注入内容
     if (platformId === 'douban') {
       // 使用纯文本内容（豆瓣分享框不支持富文本）
-      const textContent = content.markdown || content.body || ''
+      const textContent = content.markdown ?? content.body ?? ''
       console.log('[COSE] 豆瓣文本内容长度:', textContent?.length || 0)
 
       // 等待页面加载
@@ -3408,7 +3344,7 @@ function fillContentOnPage(content, platformId) {
   // 根据平台填充内容
   async function fill() {
     const host = window.location.hostname
-    const contentToFill = markdown || body || ''
+    const contentToFill = markdown ?? body ?? ''
 
     // 知乎专栏 - 由 syncToPlatform 单独处理（使用导入文档功能）
     if (host.includes('zhihu.com')) {
@@ -3984,7 +3920,7 @@ function fillContentOnPage(content, platformId) {
     console.log('[COSE] 内容已填充，请检查并发布')
   }
 
-  fill().catch(console.error)
+  return fill()
 }
 
 // 等待标签页加载

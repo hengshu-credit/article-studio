@@ -199,28 +199,36 @@ pre.hljs.code__pre {
   margin: 10px 0 18px;
   padding: 0;
   font-size: 12px;
-  line-height: 26px;
+  line-height: 21px;
   letter-spacing: normal;
   text-align: left;
   text-indent: 0;
 }
 pre.hljs.code__pre > code {
   display: -webkit-box;
-  padding: 15px 16px 16px;
+  padding: 8px 16px 16px;
   font-family: Consolas, Monaco, Menlo, monospace;
   font-size: 12px;
-  line-height: 26px;
+  line-height: inherit;
   letter-spacing: normal;
   text-indent: 0;
   border-radius: 5px;
 }
 pre code span {
-  line-height: 26px;
+  line-height: inherit;
   letter-spacing: normal;
+}
+pre code section {
+  font-family: inherit;
+  font-size: inherit;
+}
+pre code .line-numbers,
+pre code .code-scroll {
+  padding-top: 0 !important;
 }
 .mac-sign {
   display: block;
-  height: 30px;
+  height: 20px;
   box-sizing: border-box;
   line-height: 10px;
 }
@@ -233,6 +241,30 @@ li {
 li p {
   margin: 0 0 5px;
   text-indent: 0;
+}
+ul {
+  list-style: none;
+  padding-left: 8px;
+}
+ul > li {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.9;
+  text-align: left;
+  text-indent: 0;
+  overflow-wrap: anywhere;
+}
+ul > li > p {
+  text-align: left;
+  line-height: inherit;
+}
+.wechat-list-square {
+  float: left;
+  width: 6px;
+  height: 6px;
+  margin: 0.7em 0 0 -18px;
+  background-color: var(--md-primary-color);
+  line-height: 0;
 }
 blockquote {
   margin: 20px 0;
@@ -273,6 +305,13 @@ td {
   padding: 8px;
   border: 1px solid #decaca;
   color: #262626;
+}
+td:has(> img),
+td:has(> a > img),
+th:has(> img),
+th:has(> a > img) {
+  padding-left: 0;
+  padding-right: 0;
 }
 hr {
   margin: 26px 0;

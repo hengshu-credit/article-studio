@@ -331,6 +331,7 @@ async function syncWechatContent(tab, content, helpers) {
   await waitForTab(tab.id)
 
   // 使用剪贴板 HTML（带完整样式）或降级到 body
+  if (helpers.images?.prepare) content = await helpers.images.prepare(tab)
   const htmlContent = content.wechatHtml || content.body
   console.log('[COSE] 微信 HTML 内容长度:', htmlContent?.length || 0)
 
@@ -394,6 +395,7 @@ async function syncWechatContent(tab, content, helpers) {
 
   console.log('[COSE] 微信内容填充成功，字数:', fillResult.wordCount)
 
+  await helpers.images?.cover?.(tab)
   // 步骤6：等待内容稳定后，点击保存为草稿按钮
   await new Promise(resolve => setTimeout(resolve, 500))
   await chrome.scripting.executeScript({

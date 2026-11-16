@@ -94,6 +94,7 @@ async function syncWangyihaoContent(tab, content, helpers) {
   await injectUtils(chrome, tab.id)
 
   // 使用剪贴板 HTML（带完整样式）或降级到 body
+  if (helpers.images?.prepare) content = await helpers.images.prepare(tab)
   const htmlContent = content.wechatHtml || content.body
   console.log('[COSE] 网易号 HTML 内容长度:', htmlContent?.length || 0)
 

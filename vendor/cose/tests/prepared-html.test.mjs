@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-test('prepared WeChat HTML reaches the real COSE message bridge without clipboard substitution', async () => {
+test('each channel receives one copy of the prepared HTML without clipboard substitution', async () => {
   const sent = []
   let listener
   let clipboardReads = 0
@@ -26,15 +26,19 @@ test('prepared WeChat HTML reaches the real COSE message bridge without clipboar
     console: { log() {}, warn() {}, error() {} }, setTimeout() {},
     CustomEvent: class { constructor(type) { this.type = type } },
   })
-  const html = '<section data-article-kit="v1" style="color:#245b83"><p>exact draft</p></section>'
+  const platforms = ['wechat', 'baijiahao', 'zhihu', 'bilibili', 'toutiao', 'cnblogs']
+  const html = '<section data-md-component="WeChatFigureBannerV1"><img src="data:image/png;base64,abcd"></section><pre><code><span style="color:#245b83">SELECT</span> 1</code></pre>'
   await new Promise(resolve => window.$cose.addTask({
     post: { title: 'Article', content: html, wechatHtml: html, markdown: '# Article' },
-    accounts: [{ uid: 'wechat', type: 'wechat', checked: true }],
+    accounts: platforms.map(uid => ({ uid, type: uid, checked: true })),
   }, () => {}, resolve))
-  const sync = sent.find(message => message.type === 'SYNC_TO_PLATFORM')
-  assert.ok(sync)
-  assert.equal(sync.payload.content.wechatHtml, html)
-  assert.equal(sync.payload.content.body, html)
-  assert.equal(sync.payload.content.markdown, '# Article')
+  const requests = sent.filter(message => message.type === 'SYNC_TO_PLATFORM')
+  assert.equal(requests.length, platforms.length)
+  for (const { payload: { platformId, content } } of requests) {
+    assert.equal(content.wechatHtml, null)
+    assert.equal(content.body, html)
+    assert.equal(content.markdown, '# Article')
+    if (platformId === 'zhihu') assert.equal(content.preparedHtml, true)
+  }
   assert.equal(clipboardReads, 0)
 })

@@ -20,6 +20,12 @@ const dialogVisible = computed({
 const taskStatus = ref<CoseTaskStatus | null>(null)
 const submitting = ref(false)
 
+function coverFile(type: string) {
+  const post = props.tasks.find(task => task.accounts.some(account => account.type === type))?.post
+  const image = post?.images?.find(image => image.key === post.thumb)
+  return image?.data || image?.sourceUrl
+}
+
 async function startPost() {
   if (submitting.value || !props.tasks.length)
     return
@@ -85,6 +91,10 @@ watch(() => props.open, (newVal) => {
 
               <template v-if="account.status === 'done' && account.editResp">
                 {{ t('postTask.syncSuccess') }}
+                <p v-if="account.warning" class="text-amber-700">
+                  {{ account.warning }}
+                  <a v-if="coverFile(account.type)" :href="coverFile(account.type)" download="封面" target="_blank" rel="noopener noreferrer" class="underline">下载封面原图</a>
+                </p>
                 <a
                   v-if="account.type !== 'wordpress' && account.editResp"
                   :href="account.editResp.draftLink"

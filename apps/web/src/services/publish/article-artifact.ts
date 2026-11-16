@@ -10,6 +10,7 @@ import { useThemeStore } from '@/stores/theme'
 export interface ArticleArtifact {
   html: string
   plainText: string
+  materialImages?: Map<string, Promise<string>>
   markdown: string
   title: string
   document: string
@@ -38,7 +39,8 @@ export async function buildArticleArtifact(): Promise<ArticleArtifact> {
       throw new Error(`图表或公式仍在渲染，请等待完成后重试`)
     if (!result.html.trim())
       throw new Error(`预览尚未就绪，无法生成成稿`)
-    const imageHtml = await inlineMaterialImages(result.html)
+    const materialImages = new Map<string, Promise<string>>()
+    const imageHtml = await inlineMaterialImages(result.html, window.location.origin, materialImages)
     if (useEditorStore().getContent() !== markdown)
       throw new Error(`内容已更新，请重新生成成稿`)
     const html = wrapArticleHtml(imageHtml, {
@@ -52,6 +54,7 @@ export async function buildArticleArtifact(): Promise<ArticleArtifact> {
       html,
       title,
       markdown,
+      materialImages,
       plainText: result.plainText,
       document: makeArticleDocument(title, html, theme.articlePresetId === WECHAT_REFERENCE_PRESET ? 20 : 16),
       warnings: inspectArticleHtml(html),

@@ -4,7 +4,19 @@
 
 ## 本地启动
 
-需要 Node.js >= 22.22.2、pnpm 11.25.0。开发地址固定为 **http://127.0.0.1:5173/**。默认启动共享文章服务，文章和全局撤销记录保存在仓库的 `data/workspace.sqlite`，浏览器保留本地缓存。
+需要 Node.js >= 22.22.2。已有仓库时，在包含 `start.ps1` 的项目目录打开 Windows PowerShell 并运行：
+
+```powershell
+.\start.ps1
+```
+
+脚本使用 pnpm（项目指定 11.25.0），也可以通过已安装的 Corepack 调用它。首次运行会安装依赖。终端出现 `Local:` 后，打开 **[Article Studio](http://127.0.0.1:5173/)**。使用期间保持终端打开，按 `Ctrl+C` 停止服务。
+
+如果脚本提示找不到 pnpm 和 Corepack，运行 `npm.cmd install --global pnpm@11.25.0` 后重试。拉取更新后若依赖有变，在项目目录运行 `pnpm.cmd install --frozen-lockfile`，使用 Corepack 时运行 `corepack.cmd pnpm install --frozen-lockfile`。
+
+如果提示 `Port 5173 is already in use`，关闭占用该端口的服务再启动。两个项目需要同时运行时，可用 `.\start.ps1 -Port 5174` 启动 Article Studio 并访问终端显示的地址。
+
+首次从 Git 获取项目且已安装 pnpm 的用户，也可以按以下顺序启动：
 
 ```powershell
 git clone https://github.com/hengshu-credit/article-studio.git
@@ -13,7 +25,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Windows 用户也可以在仓库根目录运行 `./start.ps1`。
+默认启动共享文章服务，文章和全局撤销记录保存在仓库的 `data/workspace.sqlite`，浏览器保留本地缓存。
 
 本机预览：`pnpm build`，再运行 `pnpm preview`，访问 http://127.0.0.1:4173/；它与开发服务使用同一数据库，请分别运行。外网部署使用 `pnpm serve`，配置登录密码和 HTTPS 反向代理，详见 [共享文章与外网部署](docs/SHARED-WORKSPACE.md)。
 
@@ -58,7 +70,7 @@ pnpm build:extension
 
 **建议使用本仓库附带的扩展**：它会直接接收编辑器确认的内联 HTML，避免重新点击复制按钮与读取剪贴板造成内容偏移。其他平台继续复用 COSE 原有适配器。扩展只在本机运行并使用浏览器已有登录状态，不需要把平台密码写进项目。未在本次搭建中登录或写入任何真实平台。
 
-发布页的封面支持输入 URL、从素材库选择或直接上传文件。选中素材只更新封面，不会插入或改写正文；上传沿用素材库去重规则。提交时会把素材库封面转为图片数据，避免把需要本机访问或登录的 `/media/…` 地址交给平台。
+发布页的封面支持输入 URL、从素材库选择或直接上传文件。选中素材只更新封面，不会插入或改写正文；上传沿用素材库去重规则。分发带图文章需要重新加载本项目附带的 COSE 扩展并刷新编辑器。扩展将原图交给每个目标平台自己的上传控件或图片导入流程。Markdown 和富文本草稿均使用该平台的图片；若平台未确认上传，会在分发结果中提示。需要手动裁剪或选择封面时，可从结果中下载封面原图。
 
 封面、标题、描述和勾选渠道按「文章 ID＋渠道」自动保存在当前浏览器，关闭弹窗或刷新后恢复；手动清空的值也会保留。先填写「通用设置」可作为新选渠道的默认内容，多选后通过「当前编辑渠道」分别修改，各渠道互不覆盖。发布时仍重新生成当前文章的统一成稿，不缓存旧正文或平台登录状态。此发布表单记录不参与共享工作区的跨设备同步。
 

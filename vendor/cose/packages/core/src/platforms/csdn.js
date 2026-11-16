@@ -15,7 +15,7 @@ import { injectUtils } from './common.js'
 // 此函数会被序列化后注入到页面中执行
 // 注意：需要先调用 injectUtils 注入 window.waitFor
 function fillCSDNContent(title, markdown, body) {
-  const contentToFill = markdown || body || ''
+  const contentToFill = markdown ?? body ?? ''
 
   async function fill() {
     // 填充标题（使用注入的 window.waitFor）
@@ -77,6 +77,7 @@ async function syncCSDNContent(tab, content, helpers) {
   // 先注入公共工具函数（waitFor, setInputValue）
   await injectUtils(chrome, tab.id)
 
+  if (helpers.images?.prepare) content = await helpers.images.prepare(tab)
   // 在页面中执行填充脚本
   const result = await chrome.scripting.executeScript({
     target: { tabId: tab.id },

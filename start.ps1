@@ -1,11 +1,24 @@
+param(
+    [ValidateRange(1, 65535)]
+    [int]$Port = 5173
+)
+
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
-if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-    throw 'Please install pnpm 11.25.0, then run this script again.'
+
+$manager = Get-Command pnpm.cmd,pnpm.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+$prefixArgs = @()
+if (-not $manager) {
+    $manager = Get-Command corepack.cmd -ErrorAction SilentlyContinue
+    $prefixArgs = @('pnpm')
 }
-if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'node_modules'))) {
-    & pnpm install --frozen-lockfile
+if (-not $manager) {
+    throw 'Install Node.js >= 22.22.2 and pnpm (npm.cmd install --global pnpm@11.25.0), then run this script again.'
+}
+
+if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'apps/web/node_modules/.bin/vite.cmd'))) {
+    & $manager.Source @prefixArgs install --frozen-lockfile
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
-& pnpm dev
+& $manager.Source @prefixArgs --filter '@md/web' run dev --host 127.0.0.1 --port $Port --strictPort
 exit $LASTEXITCODE

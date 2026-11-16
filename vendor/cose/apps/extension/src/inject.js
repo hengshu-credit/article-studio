@@ -104,7 +104,7 @@
           pendingRequests.delete(id)
           reject(new Error('Request timeout'))
         }
-      }, 120000)
+      }, (payload?.content?.images?.length || 0) * 45000 + (type === 'SYNC_TO_PLATFORM' && ['zhihu', 'bilibili'].includes(payload.platformId) ? 270000 : 120000))
     })
   }
 
@@ -252,7 +252,7 @@
       icon: 'https://www.bilibili.com/favicon.ico',
       title: 'B站专栏',
       type: 'bilibili',
-      url: 'https://member.bilibili.com/article-text/home?newEditor=-1',
+      url: 'https://member.bilibili.com/york/read-editor',
     },
     {
       id: 'weibo',
@@ -364,6 +364,7 @@
   window.$cose = {
     // 版本标识
     version: '1.0.0',
+    nativeImages: true,
 
     // 获取支持的平台列表
     getPlatforms() {
@@ -487,29 +488,10 @@
         // 开始新的同步批次，将所有 tab 放入一个 group
         await sendMessage('START_SYNC_BATCH', {})
 
-        // 检查是否需要同步到微信公众号或百家号或网易号或 Medium 或少数派或B站专栏或微博头条或小红书（需要使用剪贴板 HTML）
-        const hasWechat = syncAccounts.some(a => (a.uid || a.type) === 'wechat')
-        const hasBaijiahao = syncAccounts.some(a => (a.uid || a.type) === 'baijiahao')
-        const hasWangyihao = syncAccounts.some(a => (a.uid || a.type) === 'wangyihao')
-        const hasMedium = syncAccounts.some(a => (a.uid || a.type) === 'medium')
-        const hasSspai = syncAccounts.some(a => (a.uid || a.type) === 'sspai')
-        const hasBilibili = syncAccounts.some(a => (a.uid || a.type) === 'bilibili')
-        const hasWeibo = syncAccounts.some(a => (a.uid || a.type) === 'weibo')
-        const hasXiaohongshu = syncAccounts.some(a => (a.uid || a.type) === 'xiaohongshu')
-        // Article Studio supplies the exact HTML shown in its draft preview.
-        let clipboardHtmlContent = typeof post.wechatHtml === 'string' && post.wechatHtml.trim()
-          ? post.wechatHtml
-          : null
-        if (
-          !clipboardHtmlContent && (hasWechat ||
-          hasBaijiahao ||
-          hasWangyihao ||
-          hasMedium ||
-          hasSspai ||
-          hasBilibili ||
-          hasWeibo ||
-          hasXiaohongshu)
-        ) {
+        const styledPlatforms = new Set(['wechat', 'baijiahao', 'wangyihao', 'medium', 'sspai', 'bilibili', 'weibo', 'xiaohongshu'])
+        const preparedHtml = typeof post.wechatHtml === 'string' && post.wechatHtml.trim() ? post.wechatHtml : null
+        let clipboardHtmlContent = preparedHtml
+        if (!preparedHtml && syncAccounts.some(account => styledPlatforms.has(account.uid || account.type))) {
           // 先点击复制按钮，将带样式的内容复制到剪贴板
           const copyBtn =
             document.querySelector('.copy-btn') ||
@@ -552,32 +534,27 @@
               platformId,
               content: {
                 title: post.title,
-                body: post.content,
+                body: platformId === 'zhihu' && preparedHtml ? preparedHtml : post.content,
                 markdown: post.markdown,
                 thumb: post.thumb,
                 desc: post.desc,
-                // 微信公众号、百家号、网易号、Medium、少数派、B站专栏、微博头条和小红书使用剪贴板中带样式的 HTML
-                wechatHtml:
-                  platformId === 'wechat' ||
-                  platformId === 'baijiahao' ||
-                  platformId === 'wangyihao' ||
-                  platformId === 'medium' ||
-                  platformId === 'sspai' ||
-                  platformId === 'bilibili' ||
-                  platformId === 'weibo' ||
-                  platformId === 'xiaohongshu'
-                    ? clipboardHtmlContent
-                    : null,
+                ...(post.images?.length ? { images: post.images } : {}),
+                // Keep separate clipboard HTML only when the adapter needs a different body.
+                wechatHtml: styledPlatforms.has(platformId) && clipboardHtmlContent !== post.content
+                  ? clipboardHtmlContent
+                  : null,
+                ...(platformId === 'zhihu' && preparedHtml ? { preparedHtml: true } : {}),
               },
             })
 
             if (result?.success) {
               status.accounts[i].status = 'done'
-              status.accounts[i].msg = '同步成功'
+              status.accounts[i].msg = result.warning || '同步成功'
+              status.accounts[i].warning = result.warning
               status.accounts[i].editResp = { draftLink: '' }
             } else {
               status.accounts[i].status = 'failed'
-              status.accounts[i].error = result?.message || '同步失败'
+              status.accounts[i].error = result?.message || result?.error || '同步失败'
             }
           } catch (error) {
             status.accounts[i].status = 'failed'
@@ -590,7 +567,15 @@
         if (typeof onComplete === 'function') onComplete()
       }
 
-      syncAll()
+      syncAll().catch(error => {
+        for (const account of status.accounts) {
+          if (account.status === 'done' || account.status === 'failed') continue
+          account.status = 'failed'
+          account.error = error.message || '无法开始同步'
+        }
+        if (typeof onProgress === 'function') onProgress({ ...status })
+        if (typeof onComplete === 'function') onComplete()
+      })
     },
   }
 

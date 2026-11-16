@@ -7,6 +7,13 @@ export type CosePlatform = Omit<PostAccount, `checked` | `loggedIn` | `isCheckin
   isChecking?: boolean
 }
 
+export interface CoseImage {
+  key: string
+  data: string
+  sourceUrl?: string
+  name: string
+}
+
 export interface CosePublishPost {
   title: string
   content: string
@@ -15,6 +22,7 @@ export interface CosePublishPost {
   desc: string
   /** Prepared inline HTML, consumed by the bundled COSE bridge without clipboard reads. */
   wechatHtml?: string
+  images?: CoseImage[]
 }
 
 export interface CoseTaskAccountStatus {
@@ -26,6 +34,7 @@ export interface CoseTaskAccountStatus {
   icon?: string
   status?: `uploading` | `failed` | `done` | string
   msg?: string
+  warning?: string
   error?: string
   editResp?: {
     draftLink?: string
@@ -43,6 +52,7 @@ export interface CoseAddTaskData {
 
 /** Window API injected by https://github.com/doocs/cose */
 export interface CoseApi {
+  nativeImages?: boolean
   getPlatforms?: () => CosePlatform[]
   getAccounts?: (cb: (accounts: PostAccount[]) => void) => void
   getAccountsProgressive?: (

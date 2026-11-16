@@ -77,23 +77,74 @@ describe('channel-specific COSE delivery', () => {
       expect(task.post.content).toBe(artifact.html)
       expect(task.post.wechatHtml).toBe(artifact.html)
       expect(task.post.markdown).toBe(artifact.markdown)
-      expect(task.post.thumb).toBe('data:image/png;base64,aW1hZ2UgYnl0ZXM=')
+      expect(task.post.images).toEqual([{ key: task.post.thumb, data: 'data:image/png;base64,aW1hZ2UgYnl0ZXM=', name: '封面' }])
     }
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(fields.wechat.thumb).toBe(material)
   })
 
-  it('preserves direct image URLs and stops preparation when a library image is unavailable', async () => {
-    const fetch = vi.fn(async () => ({ ok: false }))
+  it('keeps the same local original for inline images, references and a cover across two channels', async () => {
+    const bytes = 'data:image/png;base64,Ynl0ZXM='
+    const markdown = [
+      `![图](${material} "说明")`,
+      '![图表][report]',
+      `[report]: <${material}>`,
+      `示例：\`![图](${material})\``,
+      '```md',
+      `![示例](${material})`,
+      '```',
+    ].join('\n\n')
+    const html = `<section data-md-component="FigureCaptionV1"><img src="${bytes}" style="width:50%"><img src="${bytes}"></section><pre><code><span style="color:red">SELECT</span></code></pre>`
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    const artifact = { html, markdown, materialImages: new Map([[material, Promise.resolve(bytes)]]) }
+    const fields = { ...defaults, thumb: material }
+    const tasks = await buildPublishTasks(artifact, [account('wechat'), account('juejin')], { wechat: fields, juejin: fields }, 'https://studio.example')
+    for (const { post } of tasks) {
+      expect(post.images).toEqual([{ key: post.thumb, data: bytes, name: '正文图片' }])
+      expect(post.content).toBe(html.split(bytes).join(post.thumb))
+      expect(post.markdown).toContain(`![图](${post.thumb} "说明")`)
+      expect(post.markdown).toContain(`[report]: ${post.thumb}`)
+      expect(post.markdown).toContain(`\`![图](${material})\``)
+      expect(post.markdown).toContain(`![示例](${material})`)
+    }
+    expect(fetch).not.toHaveBeenCalled()
+    const addTask = vi.fn()
+    const updates: CoseTaskStatus[] = []
+    await runPublishTasks(tasks, { addTask }, status => updates.push(status))
+    expect(addTask).not.toHaveBeenCalled()
+    expect(updates[updates.length - 1]?.accounts.every(item => item.error?.includes('新版 COSE'))).toBe(true)
+  })
+
+  it('sends the original behind responsive and lazy previews, including picture components in Markdown', async () => {
+    const bytes = 'data:image/png;base64,Ynl0ZXM='
+    const artifact = {
+      html: `<section data-md-component="WeChatFigureBannerV1"><picture><source srcset="/thumb.webp"><img src="/placeholder.gif" data-src="${material}" srcset="/thumb.webp" alt="报告"></picture><p>报表说明</p></section>`,
+      markdown: `<WeChatFigureBannerV1 src="${material}" text="报表说明" />`,
+      materialImages: new Map([[material, Promise.resolve(bytes)]]),
+    }
+    vi.stubGlobal('fetch', vi.fn(() => { throw new Error('should reuse the prepared original') }))
+    const [task] = await buildPublishTasks(artifact, [account('juejin')], { juejin: { ...defaults, thumb: material } }, 'https://studio.example')
+    const { post } = task
+    expect(post.images).toHaveLength(1)
+    expect(post.content).toContain('data-md-component="WeChatFigureBannerV1"')
+    expect(post.content).not.toMatch(/data-src|srcset|thumb.webp|placeholder.gif/)
+    expect(post.markdown).toContain(`![报告](${post.thumb})`)
+    expect(post.markdown).toContain('报表说明')
+  })
+
+  it('reads external covers anonymously and stops preparation when a library image is unavailable', async () => {
+    const fetch = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['cover'], { type: 'image/png' }) }))
     vi.stubGlobal('fetch', fetch)
     const tasks = await buildPublishTasks(artifact, [account('wechat')], { wechat: defaults }, 'https://studio.example')
-    expect(tasks[0].post.thumb).toBe(defaults.thumb)
-    expect(fetch).not.toHaveBeenCalled()
+    expect(tasks[0].post.images?.[0].data).toBe('data:image/png;base64,Y292ZXI=')
+    expect(fetch).toHaveBeenCalledWith(defaults.thumb, expect.objectContaining({ credentials: 'omit' }))
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })))
     await expect(buildPublishTasks(artifact, [account('wechat')], { wechat: { ...defaults, thumb: material } }, 'https://studio.example')).rejects.toThrow('素材图片加载失败')
   })
 
   it('submits one immutable metadata snapshot per channel and aggregates independent results', async () => {
-    const tasks: CoseAddTaskData[] = await buildPublishTasks(artifact, [account('wechat'), account('juejin')], { wechat: { ...defaults, title: '微信版' }, juejin: { ...defaults, title: '技术版' } })
+    const tasks: CoseAddTaskData[] = await buildPublishTasks(artifact, [account('wechat'), account('juejin')], { wechat: { ...defaults, title: '微信版', thumb: '' }, juejin: { ...defaults, title: '技术版', thumb: '' } })
     const started: string[] = []
     const snapshots: CoseTaskStatus[] = []
     let finishFirst: (() => void) | undefined

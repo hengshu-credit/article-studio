@@ -122,6 +122,7 @@ async function syncToutiaoContent(tab, content, helpers) {
   // 先注入公共工具函数
   await injectUtils(chrome, tab.id)
 
+  if (helpers.images?.prepare) content = await helpers.images.prepare(tab)
   // 在页面中执行填充
   const result = await chrome.scripting.executeScript({
     target: { tabId: tab.id },

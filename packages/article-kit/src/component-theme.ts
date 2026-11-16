@@ -33,6 +33,7 @@ export function componentPalette(theme: ComponentTheme) {
     text: `#263445`,
     muted: `#64748b`,
     quoteTint: alpha(0.12),
+    figureShadow: alpha(0.18),
     codeShadow: alpha(0.28),
     scrollbarThumb: alpha(0.65),
     scrollbarHover: alpha(0.9),
@@ -65,7 +66,7 @@ export function applyComponentTheme(html: string, theme: ComponentTheme): string
   }
   const paintReportImage = (root: HTMLElement) => {
     paint(root.querySelector(`[data-wechat-figure-frame]`), { margin: `0 3px`, padding: `0`, lineHeight: `0`, background: `transparent`, border: `0` })
-    paint(root.querySelector(`img`), { display: `block`, width: `100%`, maxWidth: `100%`, height: `auto`, maxHeight: `none`, margin: `0`, boxSizing: `border-box`, border: `1px solid #dedede`, boxShadow: `0 0 5px rgba(0, 0, 0, 0.18)` })
+    paint(root.querySelector(`img`), { display: `block`, width: `100%`, maxWidth: `100%`, height: `auto`, maxHeight: `none`, margin: `0`, boxSizing: `border-box`, border: `1px solid ${palette.border}`, boxShadow: `0 0 5px ${palette.figureShadow}` })
   }
   const paintBanner = (banner: HTMLElement | null) => {
     paint(banner, { border: `0`, background: palette.accent, color: palette.onAccent, padding: `2px 8px`, fontSize: `${Math.round(size * 0.86)}px`, lineHeight: `1.6`, textAlign: `center`, textIndent: `0`, letterSpacing: `1px`, overflowWrap: `anywhere` })

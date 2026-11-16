@@ -109,9 +109,13 @@ export async function uploadInEditor(image, cover, expectedOrigin, timeout = 300
     const target = cm?.getInputField() || editor
     const readText = () => cm ? cm.getValue() : textarea ? editor.value : editor.textContent
     const before = readText()
-    const previousImages = new Set(editor.querySelectorAll('img'))
-    const previousFigures = new Set(editor.querySelectorAll('figure'))
-    if (requireEmptyDraft && (before.trim() || previousImages.size || doc.querySelector('textarea.title-input__inner')?.value))
+    const bodyImages = () => Array.from(editor.querySelectorAll('img[src],img[data-src]'))
+    const imageSource = img => img.getAttribute('data-src') || img.getAttribute('src')
+    const previousImages = bodyImages()
+    const previousSources = previousImages.map(imageSource)
+    const wrappers = 'figure,[contenteditable="false"],[data-block="true"]'
+    const previousWrappers = new Set(editor.querySelectorAll(wrappers))
+    if (requireEmptyDraft && (before.trim() || previousImages.length || doc.querySelector('textarea.title-input__inner')?.value))
       throw new Error('已打开的草稿有内容，请在空白草稿中上传图片')
 
     target.focus()
@@ -137,13 +141,20 @@ export async function uploadInEditor(image, cover, expectedOrigin, timeout = 300
     } else {
       target.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }))
     }
+    // A render may replace DOM nodes. Accept only one unambiguous insertion
+    // relative to the original list, even when two URLs are identical.
+    function insertedImage() {
+      const current = bodyImages()
+      if (current.length !== previousImages.length + 1) return null
+      const added = current.filter((img, index) => !previousImages.includes(img) &&
+        previousSources.every((src, i) => src === imageSource(current[i < index ? i : i + 1])))
+      return added.length === 1 ? added[0] : null
+    }
     const uploaded = await wait(() => {
-      if (!cm && !textarea) {
-        for (const img of editor.querySelectorAll('img')) {
-          if (previousImages.has(img)) continue
-          const url = loadable(img.getAttribute('data-src'), doc) || loadable(img.getAttribute('src'), doc)
-          if (url) return { img, url }
-        }
+      const img = !cm && !textarea && insertedImage()
+      if (img) {
+        const url = loadable(img.getAttribute('data-src'), doc) || loadable(img.getAttribute('src'), doc)
+        if (url) return { img, url }
       }
       const text = readText()
       if (!text.startsWith(before)) return null
@@ -156,30 +167,105 @@ export async function uploadInEditor(image, cover, expectedOrigin, timeout = 300
       ? '平台未返回可保存的图片地址，请在目标编辑器检查文件粘贴和上传结果'
       : '平台未能转存这张外链图片，请下载后从素材库插入并重新分发')
 
-    // Remove only the staging insertion through the editor, before filling the styled article.
-    if (cm) cm.replaceRange('', cm.posFromIndex(before.length), cm.posFromIndex(readText().length))
-    else if (textarea) {
-      editor.setRangeText('', before.length, editor.value.length, 'end')
-      editor.dispatchEvent(new Event('input', { bubbles: true }))
-    } else {
+    function insertionRange() {
+      if (!editor.isConnected) return null
       const range = doc.createRange()
       if (uploaded.img) {
-        const figure = uploaded.img.closest('figure')
-        range.selectNode(figure && !previousFigures.has(figure) && editor.contains(figure) ? figure : uploaded.img)
+        let node = insertedImage()
+        if (!node || !['data-src', 'src'].some(attr => remote(node.getAttribute(attr), doc) === uploaded.url)) return null
+        for (let parent = node.parentElement; parent && parent !== editor; parent = parent.parentElement) {
+          if (!parent.matches(wrappers) || previousWrappers.has(parent) || parent.querySelectorAll('img').length !== 1) continue
+          // A re-rendered wrapper may now enclose pre-existing text as well.
+          range.selectNodeContents(editor)
+          range.setEndBefore(parent)
+          const prefix = range.toString()
+          range.selectNodeContents(editor)
+          range.setStartAfter(parent)
+          if ((prefix + range.toString()).trim() === before.trim()) node = parent
+        }
+        range.selectNode(node)
       } else {
+        if (readText() !== before + uploaded.added) return null
         const walker = doc.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
         let offset = before.length
         let node
-        while ((node = walker.nextNode()) && offset > node.length) offset -= node.length
+        while ((node = walker.nextNode()) && offset >= node.length) offset -= node.length
         if (!node) throw new Error('平台图片插入位置已变化')
         range.selectNodeContents(editor)
         range.setStart(node, offset)
+        if (range.cloneContents().querySelector('img,video,audio,iframe')) return null
       }
-      selectRange(range)
-      doc.execCommand('delete')
+      return range
     }
-    if (uploaded.img?.isConnected || readText().trim() !== before.trim())
-      throw new Error('平台已上传图片，正文编辑区仍有临时内容，请检查草稿后重试')
+
+    // For atom images the visual selection can be inside a non-editable node.
+    // Delete the corresponding model node so a re-render cannot bring it back.
+    const view = editor.editor?.view || editor.pmViewDesc?.view
+    function deleteModelImage() {
+      if (!uploaded.img || view?.dom !== editor || !view.state?.doc) return false
+      const range = insertionRange()
+      if (!range) return false
+      const stagingNode = range.startContainer.childNodes[range.startOffset]
+      let removal
+      view.state.doc.descendants((node, pos) => {
+        if (node.isText) return
+        const dom = view.nodeDOM(pos)
+        if (dom === stagingNode || dom === uploaded.img ||
+          (node.isAtom && dom?.contains(uploaded.img) && dom.querySelectorAll?.('img').length === 1))
+          removal = [pos, pos + node.nodeSize]
+        if (removal) return false
+      })
+      if (!removal) return false
+      view.dispatch(view.state.tr.delete(...removal))
+      return true
+    }
+    function restored() {
+      if (!editor.isConnected) return false
+      if (cm || textarea) return readText() === before
+      const current = bodyImages()
+      return current.length === previousSources.length &&
+        current.every((img, index) => imageSource(img) === previousSources[index]) &&
+        readText().trim() === before.trim()
+    }
+
+    if (cm || textarea) {
+      if (readText() === before + uploaded.added) {
+        if (cm) cm.replaceRange('', cm.posFromIndex(before.length), cm.posFromIndex(before.length + uploaded.added.length))
+        else {
+          editor.setRangeText('', before.length, before.length + uploaded.added.length, 'end')
+          editor.dispatchEvent(new Event('input', { bubbles: true }))
+        }
+      }
+    } else if (!deleteModelImage()) {
+      target.focus()
+      const range = insertionRange()
+      if (range) {
+        selectRange(range)
+        // Chrome's execCommand('delete') can backspace into the preceding
+        // paragraph when the range encloses a contenteditable=false figure.
+        // Let the editor handle the edit; otherwise remove the exact range.
+        const init = { bubbles: true, inputType: 'deleteContentBackward' }
+        const event = new InputEvent('beforeinput', {
+          ...init, cancelable: true, targetRanges: [new StaticRange(range)],
+        })
+        if (target.dispatchEvent(event)) {
+          const remaining = insertionRange()
+          if (remaining && !view) {
+            remaining.deleteContents()
+            target.dispatchEvent(new InputEvent('input', init))
+          } else if (remaining && uploaded.added && view?.dom === editor) {
+            const from = view.posAtDOM(remaining.startContainer, remaining.startOffset)
+            const to = view.posAtDOM(remaining.endContainer, remaining.endOffset)
+            if (to > from && view.state.doc.textBetween(from, to, '\n') === uploaded.added)
+              view.dispatch(view.state.tr.delete(from, to))
+          }
+        }
+      }
+    }
+    // Allow editor transactions, mutation observers and delayed renders to settle.
+    await sleep(50)
+    if (!await wait(restored, 1500))
+      throw new Error(`图片“${image.name}”已上传，编辑器未确认临时内容清理完成，请检查当前草稿`)
     return uploaded.url
   }
 }

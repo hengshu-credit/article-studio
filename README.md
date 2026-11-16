@@ -57,6 +57,8 @@ pnpm dev
 
 ## 安装分发扩展
 
+仓库已包含可直接加载的扩展。如修改了 COSE 源码，可在仓库根目录重新构建：
+
 ```powershell
 pnpm build:extension
 ```

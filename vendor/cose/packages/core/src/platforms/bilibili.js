@@ -94,7 +94,6 @@ async function fillBilibiliDraftInPage(title, html) {
 async function syncBilibiliContent(tab, content, { chrome, waitForTab, images }) {
   await waitForTab(tab.id)
   if (images?.prepare) content = await images.prepare(tab)
-  await images?.cover?.(tab)
   const html = content.wechatHtml || content.body
   if (!html?.trim()) return { success: false, message: '没有可同步到B站的正文' }
   const [frame] = await chrome.scripting.executeScript({

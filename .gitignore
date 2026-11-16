@@ -1,5 +1,6 @@
 node_modules/
 dist/
+!/vendor/cose/apps/extension/dist/
 .wxt/
 .output/
 .vite/

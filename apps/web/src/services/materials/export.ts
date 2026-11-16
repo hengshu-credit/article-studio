@@ -1,6 +1,10 @@
 import { blobToDataUrl } from '@/lib/assets/blob'
 import { MATERIAL_URL_PATTERN } from './types'
 
+export function originalImageSource(image?: Element | null) {
+  return image?.getAttribute('data-src') || image?.getAttribute('data-original') || image?.getAttribute('src') || ''
+}
+
 /** Resolve a library image for a delivery field without leaking its private URL. */
 export async function inlineMaterialImageSource(source: string, origin = window.location.origin, loaded = new Map<string, Promise<string>>()): Promise<string> {
   let url: URL

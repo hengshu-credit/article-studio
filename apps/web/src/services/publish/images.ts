@@ -3,7 +3,7 @@ import type { CoseImage } from '@/types/cose'
 import { mapMarkdownImages } from '@md/shared/editor/map-markdown-images'
 import { inspectPublishMarkup } from '@md/shared/editor/publish-markup'
 import { blobToDataUrl } from '@/lib/assets/blob'
-import { inlineMaterialImageSource } from '@/services/materials/export'
+import { inlineMaterialImageSource, originalImageSource } from '@/services/materials/export'
 import { renderPlatformBody } from './platform-body'
 
 /** Keep bytes out of both document templates and share each original within the batch. */
@@ -54,8 +54,8 @@ export async function preparePublishImages(artifact: Pick<ArticleArtifact, 'html
   const template = document.createElement('template')
   template.innerHTML = artifact.html
   for (const img of includeBodyImages ? template.content.querySelectorAll<HTMLImageElement>('img') : []) {
-    const src = img.getAttribute('data-src') || img.getAttribute('data-original') || img.getAttribute('src')
-    if (!src?.trim())
+    const src = originalImageSource(img)
+    if (!src.trim())
       throw new Error('正文图片缺少地址，请重新选择素材')
     const image = await file(src, img.alt || '正文图片')
     img.setAttribute('src', image.key)

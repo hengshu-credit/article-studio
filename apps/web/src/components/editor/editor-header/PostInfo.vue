@@ -4,6 +4,7 @@ import type { PublishDraftMap } from '@/services/publish/drafts'
 import type { CoseAddTaskData } from '@/types/cose'
 import { Check, ChevronDown, ChevronRight, Info, Loader2, Minus } from '@lucide/vue'
 import { CheckboxIndicator, CheckboxRoot, Primitive } from 'reka-ui'
+import { originalImageSource } from '@/services/materials/export'
 import { buildArticleArtifact } from '@/services/publish/article-artifact'
 import { createPublishDraftSession, PUBLISH_DRAFTS_KEY } from '@/services/publish/drafts'
 import { buildPublishTasks } from '@/services/publish/tasks'
@@ -129,7 +130,7 @@ async function prePost() {
     if (generation !== preparationGeneration || articleId !== posts.currentPostId || !dialogVisible.value)
       return
     form.value = {
-      thumb: document.querySelector<HTMLImageElement>(`#output img`)?.getAttribute(`src`) ?? ``,
+      thumb: originalImageSource(document.querySelector(`#output img`)),
       title: [1, 2, 3, 4, 5, 6]
         .map(h => document.querySelector(`#output h${h}`))
         .find(h => h)

@@ -119,8 +119,10 @@ export async function processClipboardContent(primaryColor: string) {
     sanitizeSvgsForWeChat(clipboardDiv)
     prepareMathFormulasForWeChat(clipboardDiv)
 
+    const html = clipboardDiv.innerHTML
+    clipboardDiv.querySelectorAll('.mac-sign[aria-hidden="true"]').forEach(el => el.remove())
     return {
-      html: clipboardDiv.innerHTML,
+      html,
       plainText: clipboardDiv.textContent || ``,
       hasPendingAsyncContent: !previewReady,
     }

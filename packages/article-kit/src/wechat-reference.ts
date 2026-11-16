@@ -111,7 +111,7 @@ function decorateHeading(heading: HTMLElement, number: string, chapter: boolean)
   row.className = chapter ? `wechat-chapter-row` : `wechat-subsection-row`
   const badge = document.createElement(`span`)
   badge.className = `wechat-heading-number`
-  badge.textContent = parts.number
+  badge.textContent = !chapter && /^\d$/.test(parts.number) ? parts.number.padStart(2, '0') : parts.number
   // Keep the badge's own height independent of a multi-line title's cell.
   const numberCell = document.createElement(`span`)
   numberCell.className = `wechat-heading-number-cell`
@@ -179,13 +179,26 @@ export function decorateWeChatReference(html: string, referenceTheme: boolean): 
     }
     for (const heading of root.querySelectorAll<HTMLElement>(`h4`))
       decorateMinorHeading(heading)
-    // Draw the Mac controls with local inline shapes, without the source's remote SVG background.
-    for (const sign of root.querySelectorAll<HTMLElement>(`.mac-sign`)) {
+    // Keep the title bar outside the preformatted text. Editors may rebuild
+    // <pre> from <code> alone and discard empty inline decorations on paste.
+    for (const sign of root.querySelectorAll<HTMLElement>(`pre.code__pre > .mac-sign`)) {
+      if (sign.style.display === 'none') {
+        sign.remove()
+        continue
+      }
+      const pre = sign.parentElement!
+      const frame = document.createElement('section')
+      frame.className = 'wechat-code-frame hljs'
+      pre.replaceWith(frame)
+      frame.append(sign, pre)
       sign.replaceChildren()
-      sign.style.padding = `10px 10px 0`
+      sign.setAttribute('aria-hidden', 'true')
+      sign.style.display = 'block'
+      sign.style.padding = '8px 10px 0'
       for (const color of [`#fc625d`, `#fdbc40`, `#35cd4b`]) {
-        const dot = document.createElement(`span`)
-        Object.assign(dot.style, { display: `inline-block`, width: `10px`, height: `10px`, marginRight: `4px`, borderRadius: `50%`, backgroundColor: color })
+        const dot = document.createElement('span')
+        dot.textContent = '●'
+        dot.style.color = color
         sign.append(dot)
       }
     }

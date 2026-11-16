@@ -95,6 +95,7 @@ watch(() => props.open, (newVal) => {
                   {{ account.warning }}
                   <a v-if="coverFile(account.type)" :href="coverFile(account.type)" download="封面" target="_blank" rel="noopener noreferrer" class="underline">下载封面原图</a>
                 </p>
+                <p v-else-if="account.msg && account.msg !== '同步成功'">{{ account.msg }}</p>
                 <a
                   v-if="account.type !== 'wordpress' && account.editResp"
                   :href="account.editResp.draftLink"

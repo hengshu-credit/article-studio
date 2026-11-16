@@ -10,7 +10,14 @@ export function applyParagraphFormatting(html: string): string {
   for (const marker of root.querySelectorAll<HTMLElement>(`span[data-article-indent="none"]`)) {
     if (marker.closest(`pre, code`))
       continue
-    const paragraph = marker.closest(`p`)
+    let paragraph = marker.closest('p')
+    if (!paragraph && !marker.hasChildNodes()) {
+      let next = marker.nextSibling
+      while (next?.nodeType === Node.TEXT_NODE && !next.textContent?.trim())
+        next = next.nextSibling
+      if (next instanceof HTMLParagraphElement)
+        paragraph = next
+    }
     if (paragraph)
       paragraph.style.textIndent = `0`
     marker.replaceWith(...marker.childNodes)

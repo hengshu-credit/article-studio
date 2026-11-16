@@ -19,7 +19,7 @@ export interface RendererAPI {
     markdownContent: string
     readingTime: ReadTimeResults
   }
-  renderMarkdownToHtml: (markdown: string) => string
+  renderMarkdownToHtml: (markdown: string, decorateBlock?: (html: string, bodyLine: number) => string) => string
 
   /* HTML assembly */
   buildReadingTime: (reading: ReadTimeResults) => string

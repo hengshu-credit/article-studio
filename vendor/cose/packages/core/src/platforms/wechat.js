@@ -237,15 +237,46 @@ async function fillWechatContent(title, htmlBody) {
   }
 }
 
-// 微信公众号保存草稿函数（在页面主世界中执行）
-function saveWechatDraft() {
+// Serialized into the editor tab. WeChat counts two Latin characters as one
+// digest unit. Leave the source description intact for other channels.
+async function saveWechatDraft(description, hasCover) {
+  let notice
+  if (hasCover && !document.querySelector('#js_cover_area .js_cover_preview_new')?.style.backgroundImage?.startsWith('url('))
+    return { success: false, error: '微信编辑器没有保留指定封面，请检查当前草稿' }
+  if (description) {
+    const field = document.querySelector('#js_description, textarea[name="digest"]')
+    if (!field) return { success: false, error: '未找到微信公众号摘要输入框' }
+    const limit = Number(field.getAttribute('max-length')) || 120
+    let digest = ''
+    let units = 0
+    for (const char of description) {
+      units += char.charCodeAt(0) <= 255 ? 1 : 2 * char.length
+      if (units > limit * 2) break
+      digest += char
+    }
+    if (digest !== description)
+      notice = `已按微信摘要 ${limit} 字上限截断，原描述保留在工作台`
+    field.focus()
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, digest)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+    // The live editor updates its digest model and counter on keyup. Merely
+    // setting the textarea leaves the old auto-excerpt in the saved draft.
+    field.dispatchEvent(new KeyboardEvent('keyup', { key: 'End', code: 'End', bubbles: true }))
+    field.dispatchEvent(new Event('change', { bubbles: true }))
+    field.blur()
+    await new Promise(resolve => setTimeout(resolve, 150))
+    const counter = field.closest('#js_description_span')?.querySelector('.frm_counter')
+    const expectedCount = Math.ceil(digest.replace(/[^\x00-\xff]/g, 'xx').length / 2)
+    if (field.value !== digest || (counter && parseInt(counter.textContent, 10) !== expectedCount))
+      return { success: false, error: '微信编辑器未接受发布描述，请检查摘要' }
+  }
   const saveDraftBtn = Array.from(document.querySelectorAll('button')).find(b =>
-    b.textContent.includes('保存为草稿')
+    !b.disabled && b.textContent.trim() === '保存为草稿'
   )
   if (saveDraftBtn) {
     saveDraftBtn.click()
     console.log('[COSE] 已点击保存为草稿')
-    return { success: true }
+    return { success: true, notice }
   }
   return { success: false, error: '未找到保存按钮' }
 }
@@ -395,17 +426,19 @@ async function syncWechatContent(tab, content, helpers) {
 
   console.log('[COSE] 微信内容填充成功，字数:', fillResult.wordCount)
 
-  await helpers.images?.cover?.(tab)
   // 步骤6：等待内容稳定后，点击保存为草稿按钮
   await new Promise(resolve => setTimeout(resolve, 500))
-  await chrome.scripting.executeScript({
+  const [saved] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: saveWechatDraft,
+    args: [content.desc ?? '', Boolean(content.thumb)],
     world: 'MAIN',
   })
+  if (!saved?.result?.success)
+    return { success: false, message: saved?.result?.error || '微信未提交草稿保存', tabId: tab.id }
 
-  return { success: true, message: '已同步并保存为草稿', tabId: tab.id }
+  return { success: true, message: '已同步并保存为草稿', notice: saved.result.notice, tabId: tab.id }
 }
 
 // 导出
-export { WechatPlatform, fillWechatContent, pickWechatBodyProseMirrorCandidate, syncWechatContent }
+export { WechatPlatform, fillWechatContent, pickWechatBodyProseMirrorCandidate, saveWechatDraft, syncWechatContent }

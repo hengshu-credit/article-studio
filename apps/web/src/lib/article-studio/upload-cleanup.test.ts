@@ -99,3 +99,47 @@ it('reports the image and keeps the draft when the editor vetoes deletion', asyn
   expect(editor.querySelector('p')?.textContent).toBe('保留正文')
   expect(editor.querySelectorAll('img')).toHaveLength(2)
 })
+
+it('selects the exact uploaded original as WeChat cover before removing the staging image', async () => {
+  const original = editor.innerHTML
+  document.body.insertAdjacentHTML('beforeend', '<div id="js_cover_area"><button class="js_selectCoverFromContent"></button><div class="js_cover_preview_new"></div></div>')
+  const source = document.querySelector<HTMLButtonElement>('.js_selectCoverFromContent')!
+  const preview = document.querySelector<HTMLElement>('.js_cover_preview_new')!
+  let selected = ''
+  source.onclick = () => {
+    expect(editor.querySelector('figure img')?.getAttribute('src')).toBe(url)
+    const dialog = document.createElement('div')
+    dialog.className = 'weui-desktop-dialog'
+    dialog.innerHTML = '<h3>选择图片</h3><ul></ul><button disabled>下一步</button>'
+    Object.defineProperty(dialog, 'getClientRects', { value: () => [new DOMRect()] })
+    document.body.append(dialog)
+    for (const src of ['https://images.example.test/wrong.png', url]) {
+      const li = document.createElement('li')
+      li.className = 'appmsg_content_img_item'
+      li.innerHTML = `<span class="appmsg_content_img" style="background-image:url('${src}')"></span>`
+      li.onclick = () => { selected = src; dialog.querySelector('button')!.disabled = false }
+      dialog.querySelector('ul')!.append(li)
+    }
+    dialog.querySelector('button')!.onclick = () => {
+      dialog.innerHTML = '<h3>编辑封面</h3><button>确认</button>'
+      dialog.querySelector('button')!.onclick = () => {
+        preview.style.backgroundImage = `url("${selected}")`
+        dialog.remove()
+      }
+    }
+  }
+  const result = uploadInEditor(image, false, location.origin, 1000, false, true)
+  await vi.runAllTimersAsync()
+  expect(await result).toEqual({ ok: true, url })
+  expect(preview.style.backgroundImage).toContain(url)
+  expect(uploads).toBe(1)
+  expect(editor.innerHTML).toBe(original)
+})
+
+it('restores body contents and reports failure if the requested WeChat cover cannot be selected', async () => {
+  const original = editor.innerHTML
+  const result = uploadInEditor(image, false, location.origin, 1000, false, true)
+  await vi.runAllTimersAsync()
+  expect(await result).toMatchObject({ ok: false, error: expect.stringContaining('封面') })
+  expect(editor.innerHTML).toBe(original)
+})

@@ -16,8 +16,8 @@ const referenceCSS = readFileSync(resolve(process.cwd(), `../../packages/article
 const articleCodeCSS = readFileSync(resolve(process.cwd(), `../../packages/article-kit/styles/code.css`), `utf8`)
 const codeCSS = readFileSync(resolve(process.cwd(), `node_modules/highlight.js/styles/atom-one-light.css`), `utf8`)
 
-function render(markdown: string, reference = true): string {
-  const renderer = initRenderer({ components: Object.fromEntries(ARTICLE_COMPONENTS.map(component => [component.name, component])), isMacCodeBlock: true })
+function render(markdown: string, reference = true, isMacCodeBlock = true): string {
+  const renderer = initRenderer({ components: Object.fromEntries(ARTICLE_COMPONENTS.map(component => [component.name, component])), isMacCodeBlock })
   const { html, readingTime } = renderMarkdown(markdown, renderer)
   return decorateWeChatReference(postProcessHtml(html, readingTime, renderer), reference)
 }
@@ -60,10 +60,11 @@ describe(`weChat reference theme`, () => {
 
   it(`keeps explicit numbering and heading markup while escaping heading text`, () => {
     const root = document.createElement(`div`)
-    root.innerHTML = render(`## 三 **检查**\n\n### 05 [方法](https://example.com)\n\n## &lt;img src=x onerror=alert(1)&gt;`)
+    root.innerHTML = render(`## 三 **检查**\n\n### 5. [方法](https://example.com)\n\n### 10、结果\n\n## &lt;img src=x onerror=alert(1)&gt;`)
     expect(root.querySelector(`.wechat-heading-number`)?.textContent).toBe(`三`)
     expect(root.querySelector(`.wechat-heading-label strong`)?.textContent).toBe(`检查`)
     expect(root.querySelector(`.wechat-subsection a`)?.textContent).toBe(`方法`)
+    expect([...root.querySelectorAll('.wechat-subsection .wechat-heading-number')].map(n => n.textContent)).toEqual(['05', '10'])
     expect(root.querySelector(`img`)).toBeNull()
     expect(root.textContent).toContain(`<img`)
   })
@@ -93,6 +94,10 @@ describe(`weChat reference theme`, () => {
     expect(intro.style.lineHeight).toBe(`1.75`)
     expect(intro.querySelector(`strong`)).not.toBeNull()
     expect(root.querySelectorAll(`.mac-sign > span`)).toHaveLength(3)
+    expect(root.querySelector('.mac-sign + pre code')?.textContent).toContain('demo')
+    expect(root.querySelector('.mac-sign')?.textContent).toBe('●●●')
+    expect(root.querySelector('pre')?.textContent).not.toContain('●')
+    expect(render('```js\n42\n```', true, false)).not.toContain('wechat-code-frame')
     expect(root.querySelector(`.mac-sign svg`)).toBeNull()
     expect(root.innerHTML).not.toContain(`url(`)
   })
@@ -143,7 +148,7 @@ describe(`weChat reference theme`, () => {
       const badge = numberCell.firstElementChild as HTMLElement
       const label = row.lastElementChild as HTMLElement
       expect(row.style.display).toBe(`table`)
-      expect(row.style.width).toBe(heading.tagName === `H2` ? `100%` : `auto`)
+      expect(row.style.width).toBe('auto')
       expect(row.style.maxWidth).toBe(`100%`)
       expect(numberCell.style.verticalAlign).toBe(heading.tagName === `H2` ? `middle` : `bottom`)
       expect(numberCell.style.whiteSpace).toBe(`nowrap`)
@@ -157,6 +162,8 @@ describe(`weChat reference theme`, () => {
         const text = label.firstElementChild as HTMLElement
         const rule = label.lastElementChild as HTMLElement
         expect(text.style.lineHeight).toBe(`25px`)
+        expect(text.style.paddingLeft).toBe('0.5em')
+        expect(text.style.paddingRight).toBe('0.5em')
         expect(text.style.borderWidth).toBe(`0px`)
         expect(text.style.boxShadow).toBe(`none`)
         expect(rule.style.height).toBe(`1px`)
@@ -164,6 +171,9 @@ describe(`weChat reference theme`, () => {
         expect(rule.querySelector(`br`)).not.toBeNull()
       }
       else {
+        expect(badge.style.minWidth).toBe('2ch')
+        expect(badge.style.whiteSpace).toBe('nowrap')
+        expect(badge.style.wordBreak).toBe('keep-all')
         expect(label.style.borderBottom).toBe(`1px solid rgb(192, 0, 0)`)
       }
     }
@@ -181,7 +191,7 @@ describe(`weChat reference theme`, () => {
     const palette = componentPalette(variables)
     await applyTheme({
       themeName: `default`,
-      customCSS: `${referenceCSS}\n:root { --md-code-shadow: ${palette.codeShadow}; }\n${articleCodeCSS}`,
+      customCSS: `${referenceCSS}\n:root { --md-code-shadow: ${palette.codeShadow}; --studio-scrollbar-thumb: ${palette.scrollbarThumb}; --studio-scrollbar-track: ${palette.scrollbarTrack}; }\n${articleCodeCSS}`,
       variables,
     })
     const html = render(referenceMarkdown)
@@ -211,9 +221,11 @@ describe(`weChat reference theme`, () => {
     const pre = root.querySelector<HTMLElement>(`pre`)!
     const code = pre.querySelector<HTMLElement>(`code`)!
     expect(pre.style.backgroundColor).toBe(`rgb(250, 250, 250)`)
-    expect(pre.style.boxShadow).toBe(`0 2px 10px ${shadow}`)
+    expect(pre.parentElement!.style.boxShadow).toBe(`0 2px 10px ${shadow}`)
+    expect(pre.style.boxShadow).toBe('none')
+    expect(code.style.scrollbarColor).toBe(`${palette.scrollbarThumb} ${palette.scrollbarTrack}`)
     expect(code.style.fontSize).toBe(`12px`)
-    expect(pre.querySelector<HTMLElement>(`.mac-sign`)!.style.height).toBe(`20px`)
+    expect((pre.previousElementSibling as HTMLElement).style.height).toBe('20px')
     expect(pre.style.lineHeight).toBe(`21px`)
     expect(code.style.paddingTop).toBe(`8px`)
     expect(code.style.lineHeight).toBe(`inherit`)

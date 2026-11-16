@@ -95,22 +95,23 @@ const accountsByCategory = computed(() => {
   }))
 })
 
-// Whether category is fully selected (logged-in only)
+// A saved selection can still be cleared after the platform login expires.
+function canToggleAccount(account: PostAccount) {
+  return account.loggedIn || account.checked
+}
+
 function isCategoryAllSelected(accounts: PostAccount[]) {
-  const loggedInAccounts = accounts.filter(a => a.loggedIn)
-  return loggedInAccounts.length > 0 && loggedInAccounts.every(a => a.checked)
+  const available = accounts.filter(canToggleAccount)
+  return available.length > 0 && available.every(a => a.checked)
 }
 
 function isCategoryIndeterminate(accounts: PostAccount[]) {
-  const loggedInAccounts = accounts.filter(a => a.loggedIn)
-  const checkedCount = loggedInAccounts.filter(a => a.checked).length
-  return checkedCount > 0 && checkedCount < loggedInAccounts.length
+  return accounts.some(a => a.checked) && accounts.some(a => a.loggedIn && !a.checked)
 }
 
 function toggleCategorySelectAll(accounts: PostAccount[]) {
-  const loggedInAccounts = accounts.filter(a => a.loggedIn)
-  const allSelected = loggedInAccounts.every(a => a.checked)
-  loggedInAccounts.forEach(a => a.checked = !allSelected)
+  const checked = !isCategoryAllSelected(accounts)
+  accounts.filter(canToggleAccount).forEach(a => a.checked = checked)
 }
 
 async function prePost() {
@@ -479,7 +480,7 @@ onBeforeMount(() => {
                       <CheckboxRoot
                         v-model="account.checked"
                         :aria-label="account.title"
-                        :disabled="!account.loggedIn"
+                        :disabled="!canToggleAccount(account)"
                         class="bg-background hover:bg-muted h-[18px] w-[18px] flex shrink-0 appearance-none items-center justify-center border border-gray-300 rounded-[3px] outline-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <CheckboxIndicator>

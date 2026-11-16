@@ -1,86 +1,73 @@
-import type { LineDoc } from './scroll-sync-blocks'
+// @vitest-environment jsdom
+import { ARTICLE_COMPONENTS, decorateWeChatReference } from '@article-studio/article-kit'
+import { initRenderer } from '@md/core/renderer'
+import { postProcessHtml, renderMarkdown } from '@md/core/utils'
 import { describe, expect, it } from 'vitest'
-import {
-  mapBlockIndex,
-  parseSourceBlocks,
-  sourceBlockIndexForLine,
-  sourceLineForBlockIndex,
-} from './scroll-sync-blocks'
+import { extractPreviewMap, mapScroll, markPreviewBlock } from './scroll-sync-blocks'
 
-function docFromLines(lines: string[]): LineDoc {
-  return {
-    lines: lines.length,
-    line: (n: number) => ({ text: lines[n - 1] ?? `` }),
-  }
-}
-
-describe(`parseSourceBlocks`, () => {
-  it(`splits on blank lines`, () => {
-    const blocks = parseSourceBlocks(docFromLines([
-      `# Title`,
-      ``,
-      `para one`,
-      `still one`,
-      ``,
-      `para two`,
-    ]))
-    expect(blocks).toEqual([
-      { startLine: 1, endLine: 1 },
-      { startLine: 3, endLine: 4 },
-      { startLine: 6, endLine: 6 },
-    ])
-  })
-
-  it(`returns empty for blank document`, () => {
-    expect(parseSourceBlocks(docFromLines([``, ``]))).toEqual([])
-  })
-
-  it(`treats a single contiguous block as one`, () => {
-    expect(parseSourceBlocks(docFromLines([`a`, `b`, `c`]))).toEqual([
-      { startLine: 1, endLine: 3 },
-    ])
-  })
-})
-
-describe(`sourceBlockIndexForLine`, () => {
-  const blocks = [
-    { startLine: 1, endLine: 2 },
-    { startLine: 4, endLine: 5 },
-    { startLine: 7, endLine: 8 },
-  ]
-
-  it(`finds the last block whose startLine is <= line`, () => {
-    expect(sourceBlockIndexForLine(blocks, 1)).toBe(0)
-    expect(sourceBlockIndexForLine(blocks, 3)).toBe(0)
-    expect(sourceBlockIndexForLine(blocks, 4)).toBe(1)
-    expect(sourceBlockIndexForLine(blocks, 9)).toBe(2)
-  })
-})
-
-describe(`sourceLineForBlockIndex`, () => {
-  it(`returns 1 for empty blocks`, () => {
-    expect(sourceLineForBlockIndex([], 0)).toBe(1)
-  })
-
-  it(`clamps to last block`, () => {
-    const blocks = [
-      { startLine: 1, endLine: 1 },
-      { startLine: 3, endLine: 3 },
+describe('source to preview map', () => {
+  it('keeps actual source lines across hidden metadata, adjacent blocks, repeated titles and decorations', () => {
+    const lines = [
+      '---',
+      'title: example',
+      '---',
+      '# Same',
+      'First paragraph',
+      '',
+      '```js',
+      'const x = 1',
+      '',
+      'const y = 2',
+      '```',
+      '',
+      '| A | B |',
+      '|---|---|',
+      '| a | b |',
+      '',
+      '<WeChatIntroV1>',
+      '',
+      'Nested **body**.',
+      '',
+      '</WeChatIntroV1>',
+      '',
+      '## Same',
+      '1. One',
+      '2. Two',
+      '',
+      '[Link](https://example.com)',
     ]
-    expect(sourceLineForBlockIndex(blocks, 0)).toBe(1)
-    expect(sourceLineForBlockIndex(blocks, 99)).toBe(3)
+    const markdown = lines.join('\r\n')
+    function article(mapped: boolean) {
+      const renderer = initRenderer({ countStatus: true, citeStatus: true, isMacCodeBlock: true, components: Object.fromEntries(ARTICLE_COMPONENTS.map(c => [c.name, c])) })
+      const { html, readingTime } = renderMarkdown(markdown, renderer, mapped ? markPreviewBlock : undefined)
+      return decorateWeChatReference(postProcessHtml(html, readingTime, renderer), true)
+    }
+    const result = extractPreviewMap(article(true))
+    const clean = document.createElement('template')
+    clean.innerHTML = article(false)
+    expect(result.html).toBe(clean.innerHTML)
+    const elements = clean.content.firstElementChild!.children
+    expect(result.blocks.map(b => [lines[b.line - 1], elements[b.child].tagName])).toEqual([
+      ['# Same', 'H1'],
+      ['First paragraph', 'P'],
+      ['```js', 'SECTION'],
+      ['| A | B |', 'SECTION'],
+      ['<WeChatIntroV1>', 'SECTION'],
+      ['## Same', 'H2'],
+      ['1. One', 'OL'],
+      ['[Link](https://example.com)', 'P'],
+    ])
+    expect(elements[result.blocks[2].child].querySelector('pre .hljs-keyword')).not.toBeNull()
+    expect(elements[result.blocks[4].child].querySelector('strong')?.textContent).toBe('body')
   })
 })
 
-describe(`mapBlockIndex`, () => {
-  it(`maps proportionally across ranges`, () => {
-    expect(mapBlockIndex(0, 5, 5)).toBe(0)
-    expect(mapBlockIndex(4, 5, 5)).toBe(4)
-    expect(mapBlockIndex(2, 5, 3)).toBe(1)
-  })
-
-  it(`handles single-block edge cases`, () => {
-    expect(mapBlockIndex(0, 1, 1)).toBe(0)
-    expect(mapBlockIndex(0, 1, 4)).toBe(0)
+describe('scroll interpolation', () => {
+  const anchors = [{ editor: 20, preview: 180 }, { editor: 200, preview: 240 }, { editor: 850, preview: 760 }]
+  const end = { editor: 800, preview: 900 }
+  const at = (i: number) => anchors[i]
+  it.each([[0, 0], [20, 180], [110, 210], [200, 240], [500, 570], [800, 900]])('maps %i to %i in both directions', (editor, preview) => {
+    expect(mapScroll(editor, 'editor', end, anchors.length, at)).toBe(preview)
+    expect(mapScroll(preview, 'preview', end, anchors.length, at)).toBe(editor)
   })
 })

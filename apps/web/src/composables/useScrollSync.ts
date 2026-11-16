@@ -1,281 +1,132 @@
 import type { Text } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import type { MaybeRefOrGetter, Ref } from 'vue'
-import type { SourceBlock } from '@/lib/preview/scroll-sync-blocks'
-import {
-  mapBlockIndex,
-  parseSourceBlocks,
-  sourceBlockIndexForLine,
-  sourceLineForBlockIndex,
-} from '@/lib/preview/scroll-sync-blocks'
+import { mapScroll } from '@/lib/preview/scroll-sync-blocks'
+import { useRenderStore } from '@/stores/render'
 
-/**
- * Bidirectional scroll sync between editor and preview.
- *
- * Uses block-based mapping (not simple pixel ratio) so large content skew
- * between panes stays accurate:
- *   1. Split source doc into logical blocks on blank lines
- *   2. Collect matching block-level elements from preview DOM
- *   3. Map indices proportionally between panes
- *   4. Scroll to the mapped block on each side
- */
+type Pane = 'editor' | 'preview'
+
 export function useScrollSync(
   codeMirrorViewRef: MaybeRefOrGetter<EditorView | null>,
   previewContainerRef: MaybeRefOrGetter<HTMLElement | null>,
   enableScrollSync: Ref<boolean>,
 ) {
-  let isSyncingFromEditor = false
-  let isSyncingFromPreview = false
-  // Filter bounce scroll events via programmatic target values (not a time window):
-  // Chrome/Firefox defer scroll events from scrollTop assignment to the next frame,
-  // after rAF clears flags — compare positions to intercept without blocking user scroll.
-  let pendingPreviewScrollTop = -1
-  let pendingEditorScrollTop = -1
-
-  let cachedDoc: Text | null = null
-  let cachedSourceBlocks: SourceBlock[] | null = null
-
-  function getSourceBlocks(doc: Text): SourceBlock[] {
-    if (cachedDoc === doc && cachedSourceBlocks)
-      return cachedSourceBlocks
-    cachedDoc = doc
-    cachedSourceBlocks = parseSourceBlocks(doc)
-    return cachedSourceBlocks
-  }
-
-  let previewVersion = 0
-  let cachedPreviewVersion = -1
-  let cachedPreviewBlocks: HTMLElement[] = []
-  let cachedPreviewOffsetTops: number[] = []
-  let mutationObserver: MutationObserver | null = null
-
-  function setupMutationObserver(preview: HTMLElement) {
-    if (mutationObserver)
-      return
-    const output = preview.querySelector('#output')
-    if (!output)
-      return
-    mutationObserver = new MutationObserver(() => { previewVersion++ })
-    mutationObserver.observe(output, { childList: true, subtree: true })
-  }
-
-  function teardownMutationObserver() {
-    mutationObserver?.disconnect()
-    mutationObserver = null
-  }
-
-  function getPreviewBlockElements(preview: HTMLElement): { blocks: HTMLElement[], offsetTops: number[] } {
-    // Lazy init when #output was not ready on first watchEffect run
-    if (!mutationObserver)
-      setupMutationObserver(preview)
-
-    if (cachedPreviewVersion === previewVersion)
-      return { blocks: cachedPreviewBlocks, offsetTops: cachedPreviewOffsetTops }
-
-    const output = preview.querySelector('#output')
-    if (!output) {
-      cachedPreviewVersion = previewVersion
-      cachedPreviewBlocks = []
-      cachedPreviewOffsetTops = []
-      return { blocks: [], offsetTops: [] }
-    }
-
-    const container = output.firstElementChild
-    if (!container) {
-      cachedPreviewVersion = previewVersion
-      cachedPreviewBlocks = []
-      cachedPreviewOffsetTops = []
-      return { blocks: [], offsetTops: [] }
-    }
-
-    const blocks: HTMLElement[] = []
-
-    for (const child of container.children) {
-      const tag = child.tagName
-
-      if (tag === 'STYLE')
-        continue
-
-      // Skip reading-time blockquote only (class-based; avoids dropping user blockquotes)
-      if (tag === 'BLOCKQUOTE' && (child as HTMLElement).classList.contains('md-blockquote'))
-        continue
-
-      // Stop at footnotes (structural; no text match to avoid custom H4 conflicts)
-      if (tag === 'H4' && (child as HTMLElement).dataset.heading === 'true') {
-        const next = child.nextElementSibling
-        if (next && (next as HTMLElement).classList.contains('footnotes'))
-          break
-      }
-      if ((child as HTMLElement).classList.contains('footnotes'))
-        break
-
-      blocks.push(child as HTMLElement)
-    }
-
-    const previewRect = preview.getBoundingClientRect()
-    const offsetTops = blocks.map(el =>
-      el.getBoundingClientRect().top - previewRect.top + preview.scrollTop,
-    )
-
-    cachedPreviewVersion = previewVersion
-    cachedPreviewBlocks = blocks
-    cachedPreviewOffsetTops = offsetTops
-    return { blocks, offsetTops }
-  }
-
-  function onEditorScroll() {
-    if (!enableScrollSync.value || isSyncingFromPreview)
-      return
-
-    const view = toValue(codeMirrorViewRef)
-    const preview = toValue(previewContainerRef)
-    if (!view || !preview)
-      return
-
-    const scroller = view.scrollDOM
-    const scrollable = scroller.scrollHeight - scroller.clientHeight
-    if (scrollable <= 0)
-      return
-
-    if (pendingEditorScrollTop >= 0 && Math.abs(scroller.scrollTop - pendingEditorScrollTop) < 2) {
-      pendingEditorScrollTop = -1
-      return
-    }
-    pendingEditorScrollTop = -1
-
-    isSyncingFromEditor = true
-
-    if (scroller.scrollTop <= 0) {
-      pendingPreviewScrollTop = 0
-      preview.scrollTop = 0
-      requestAnimationFrame(() => { isSyncingFromEditor = false })
-      return
-    }
-    if (scroller.scrollTop >= scrollable) {
-      const maxPreviewScrollTop = preview.scrollHeight - preview.clientHeight
-      pendingPreviewScrollTop = maxPreviewScrollTop
-      preview.scrollTop = maxPreviewScrollTop
-      requestAnimationFrame(() => { isSyncingFromEditor = false })
-      return
-    }
-
-    const sourceBlocks = getSourceBlocks(view.state.doc)
-    if (sourceBlocks.length === 0) {
-      isSyncingFromEditor = false
-      return
-    }
-
-    const lineBlock = view.lineBlockAtHeight(scroller.scrollTop)
-    const lineNo = view.state.doc.lineAt(lineBlock.from).number
-
-    const srcIndex = sourceBlockIndexForLine(sourceBlocks, lineNo)
-
-    const { blocks: previewBlocks, offsetTops: previewOffsetTops } = getPreviewBlockElements(preview)
-    if (previewBlocks.length === 0) {
-      isSyncingFromEditor = false
-      return
-    }
-
-    const previewIndex = mapBlockIndex(srcIndex, sourceBlocks.length, previewBlocks.length)
-    const targetIndex = Math.min(previewIndex, previewBlocks.length - 1)
-    const maxPreviewScrollTop = preview.scrollHeight - preview.clientHeight
-    const targetScrollTop = Math.min(previewOffsetTops[targetIndex], maxPreviewScrollTop)
-    pendingPreviewScrollTop = targetScrollTop
-    preview.scrollTop = targetScrollTop
-    requestAnimationFrame(() => { isSyncingFromEditor = false })
-  }
-
-  function onPreviewScroll() {
-    if (!enableScrollSync.value || isSyncingFromEditor)
-      return
-
-    const view = toValue(codeMirrorViewRef)
-    const preview = toValue(previewContainerRef)
-    if (!view || !preview)
-      return
-
-    if (pendingPreviewScrollTop >= 0 && Math.abs(preview.scrollTop - pendingPreviewScrollTop) < 2) {
-      pendingPreviewScrollTop = -1
-      return
-    }
-    pendingPreviewScrollTop = -1
-
-    const previewScrollable = preview.scrollHeight - preview.clientHeight
-    if (previewScrollable <= 0)
-      return
-
-    isSyncingFromPreview = true
-
-    if (preview.scrollTop <= 0) {
-      pendingEditorScrollTop = 0
-      view.scrollDOM.scrollTop = 0
-      requestAnimationFrame(() => { isSyncingFromPreview = false })
-      return
-    }
-    if (preview.scrollTop >= previewScrollable) {
-      const maxEditorScrollTop = view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight
-      pendingEditorScrollTop = maxEditorScrollTop
-      view.scrollDOM.scrollTop = maxEditorScrollTop
-      requestAnimationFrame(() => { isSyncingFromPreview = false })
-      return
-    }
-
-    const { blocks: previewBlocks, offsetTops: previewOffsetTops } = getPreviewBlockElements(preview)
-    if (previewBlocks.length === 0) {
-      isSyncingFromPreview = false
-      return
-    }
-
-    const scrollTop = preview.scrollTop
-    let lo = 0
-    let hi = previewOffsetTops.length - 1
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1
-      if (previewOffsetTops[mid] <= scrollTop)
-        lo = mid
-      else
-        hi = mid - 1
-    }
-    const visibleBlockIndex = lo
-
-    const sourceBlocks = getSourceBlocks(view.state.doc)
-    if (sourceBlocks.length === 0) {
-      isSyncingFromPreview = false
-      return
-    }
-
-    const srcIndex = mapBlockIndex(visibleBlockIndex, previewBlocks.length, sourceBlocks.length)
-    const lineNo = sourceLineForBlockIndex(sourceBlocks, srcIndex)
-    const line = view.state.doc.line(lineNo)
-
-    const blockInfo = view.lineBlockAt(line.from)
-    if (blockInfo) {
-      const maxEditorScrollTop = view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight
-      const targetScrollTop = Math.min(blockInfo.top, maxEditorScrollTop)
-      pendingEditorScrollTop = targetScrollTop
-      view.scrollDOM.scrollTop = targetScrollTop
-    }
-    requestAnimationFrame(() => { isSyncingFromPreview = false })
-  }
+  const render = useRenderStore()
 
   watchEffect((onCleanup) => {
-    if (!enableScrollSync.value)
-      return
-
     const view = toValue(codeMirrorViewRef)
     const preview = toValue(previewContainerRef)
-    if (!view || !preview)
+    const output = preview?.querySelector('#output')
+    if (!enableScrollSync.value || !view || !preview || !output)
       return
 
-    setupMutationObserver(preview)
-    const scroller = view.scrollDOM
-    scroller.addEventListener(`scroll`, onEditorScroll, { passive: true })
-    preview.addEventListener(`scroll`, onPreviewScroll, { passive: true })
+    const panes = { editor: view.scrollDOM, preview }
+    let positions: { line: number, top: number }[] | undefined
+    let checkedDoc: Text | undefined
+    let matches = false
+    let frame = 0
+    let driver: Pane | undefined
+    const pending: Record<Pane, number | undefined> = { editor: undefined, preview: undefined }
+
+    const sync = (from: Pane) => {
+      const doc = view.state.doc
+      const source = render.scrollMap
+      if (!source)
+        return
+      if (checkedDoc !== doc) {
+        matches = doc.toString() === source.markdown
+        checkedDoc = doc
+      }
+      // The preview is debounced; its old line numbers belong to another revision.
+      if (!matches || !panes.editor.clientWidth || !preview.clientWidth)
+        return
+      const end = {
+        editor: panes.editor.scrollHeight - panes.editor.clientHeight,
+        preview: preview.scrollHeight - preview.clientHeight,
+      }
+      if (end[from] <= 0)
+        return
+
+      if (!positions) {
+        positions = []
+        const container = output.firstElementChild
+        const origin = preview.getBoundingClientRect().top + preview.clientTop - preview.scrollTop
+        for (const { child, line } of source.blocks) {
+          const element = container?.children[child]
+          if (!element || !Number.isInteger(line) || line < 1 || line > doc.lines || !element.getClientRects().length)
+            continue
+          const top = element.getBoundingClientRect().top - origin
+          const last = positions[positions.length - 1]
+          if (top > (last?.top ?? 0) && line > (last?.line ?? 0))
+            positions.push({ line, top })
+        }
+      }
+
+      // CodeMirror refines wrapped line heights as its viewport moves. Read
+      // only the lines visited by the binary search from the current layout.
+      const editorOrigin = view.documentTop - panes.editor.getBoundingClientRect().top - panes.editor.clientTop + panes.editor.scrollTop
+      const to = from === 'editor' ? 'preview' : 'editor'
+      const target = panes[to]
+      const measured = positions
+      const top = mapScroll(panes[from].scrollTop, from, end, measured.length, (i) => {
+        const anchor = measured[i]
+        return { editor: editorOrigin + view.lineBlockAt(doc.line(anchor.line).from).top, preview: anchor.top }
+      })
+      if (Math.abs(target.scrollTop - top) > 0.5) {
+        target.scrollTop = top
+        // Ignore the browser's rounded/clamped echo, but let an actual wheel
+        // or drag in the opposite pane take over immediately.
+        pending[to] = target.scrollTop
+      }
+    }
+
+    function schedule() {
+      if (!frame && driver) {
+        frame = requestAnimationFrame(() => {
+          frame = 0
+          if (driver)
+            sync(driver)
+        })
+      }
+    }
+
+    function onScroll(from: Pane) {
+      const expected = pending[from]
+      pending[from] = undefined
+      if (expected !== undefined && Math.abs(panes[from].scrollTop - expected) < 1)
+        return
+      driver = from
+      schedule()
+    }
+    const editorScroll = () => onScroll('editor')
+    const previewScroll = () => onScroll('preview')
+
+    function invalidate() {
+      positions = undefined
+      schedule()
+    }
+    const stopMapWatch = watch(() => render.scrollMap, () => {
+      checkedDoc = undefined
+      invalidate()
+    }, { flush: 'post' })
+    const resize = new ResizeObserver(invalidate)
+    resize.observe(output)
+    resize.observe(preview)
+    resize.observe(panes.editor)
+    const mutations = new MutationObserver(invalidate)
+    mutations.observe(output, { childList: true, subtree: true, attributes: true })
+    preview.addEventListener('load', invalidate, true)
+    preview.addEventListener('scroll', previewScroll, { passive: true })
+    panes.editor.addEventListener('scroll', editorScroll, { passive: true })
 
     onCleanup(() => {
-      scroller.removeEventListener(`scroll`, onEditorScroll)
-      preview.removeEventListener(`scroll`, onPreviewScroll)
-      teardownMutationObserver()
+      cancelAnimationFrame(frame)
+      stopMapWatch()
+      resize.disconnect()
+      mutations.disconnect()
+      preview.removeEventListener('load', invalidate, true)
+      preview.removeEventListener('scroll', previewScroll)
+      panes.editor.removeEventListener('scroll', editorScroll)
     })
-  })
+  }, { flush: 'post' })
 }

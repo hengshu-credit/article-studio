@@ -5,7 +5,7 @@ import type { RendererObject, Tokens } from 'marked'
 import readingTime from '@md/shared/utils/readingTime'
 import { decodeHTML } from 'entities'
 import hljs from 'highlight.js/lib/core'
-import { Marked } from 'marked'
+import { Marked, Parser } from 'marked'
 import {
   getBuiltInRegistry,
   markedAlert,
@@ -290,7 +290,10 @@ export function initRenderer(opts: IOpts = {}): RendererAPI {
       const isFigureImage = text.includes(`<figure`) && text.includes(`<img`)
       const isEmpty = text.trim() === ``
       const isKatexOnly = /^<section class="katex-block"[\s\S]*<\/section>\s*$/.test(text.trim())
-      if (isFigureImage || isEmpty || isKatexOnly) {
+      // An inline formatting marker can make marked tokenize an explicit
+      // HTML paragraph as Markdown. Nesting the <p> creates empty siblings.
+      const hasHtmlParagraph = tokens.some(token => token.type === 'html' && /^<p[\s>]/i.test(token.raw))
+      if (isFigureImage || isEmpty || isKatexOnly || hasHtmlParagraph) {
         return text
       }
       return styledContent(`p`, text)
@@ -496,14 +499,43 @@ export function initRenderer(opts: IOpts = {}): RendererAPI {
   })))
   markdownParser.use(markedRuby())
 
+  // The preview can associate each root block with its source without re-lexing
+  // Markdown. Walk hooks (TOC, diagrams, etc.) still see the entire document.
+  let decorateBlock: ((html: string, bodyLine: number) => string) | undefined
+  markdownParser.use({
+    hooks: {
+      provideParser() {
+        if (!decorateBlock)
+          return Parser.parse
+        const decorate = decorateBlock
+        return (tokens, options) => {
+          const parser = new Parser(options)
+          let line = 1
+          return tokens.map((token) => {
+            const html = parser.parse([token])
+            const start = line
+            line += token.raw.split('\n').length - 1
+            return html ? decorate(html, start) : html
+          }).join('')
+        }
+      },
+    },
+  })
+
   return {
     buildAddition: () => ADDITION_STYLE,
     buildFootnotes,
     setOptions,
     reset,
     parseFrontMatterAndContent,
-    renderMarkdownToHtml(markdown: string) {
-      return markdownParser.parse(markdown) as string
+    renderMarkdownToHtml(markdown, decorate) {
+      decorateBlock = decorate
+      try {
+        return markdownParser.parse(markdown) as string
+      }
+      finally {
+        decorateBlock = undefined
+      }
     },
     buildReadingTime,
     createContainer(content: string) {

@@ -1,6 +1,6 @@
 //#region src/native-images.js
 /** Serialized into the platform tab. All file handling runs against its own editor. */
-async function uploadInEditor(image, cover, expectedOrigin, timeout = 3e4, requireEmptyDraft = false) {
+async function uploadInEditor(image, cover, expectedOrigin, timeout = 3e4, requireEmptyDraft = false, selectWechatCover = false) {
 	try {
 		return {
 			ok: true,
@@ -175,6 +175,53 @@ async function uploadInEditor(image, cover, expectedOrigin, timeout = 3e4, requi
 			} : null;
 		}, timeout);
 		if (!uploaded) throw new Error(blob ? "平台未返回可保存的图片地址，请在目标编辑器检查文件粘贴和上传结果" : "平台未能转存这张外链图片，请下载后从素材库插入并重新分发");
+		async function chooseWechatCover() {
+			const area = doc.querySelector("#js_cover_area");
+			const open = area?.querySelector(".js_selectCoverFromContent");
+			if (!open) throw new Error("未找到微信的“从正文选择”封面入口");
+			const dialog = (heading) => [...doc.querySelectorAll(".weui-desktop-dialog")].find((el) => el.getClientRects().length && el.querySelector("h3")?.textContent.trim() === heading);
+			const button = (el, text) => [...el.querySelectorAll("button")].find((b) => !b.disabled && b.textContent.trim() === text);
+			function original(src) {
+				try {
+					const url = new URL(src, doc.baseURI);
+					return /(^|\.)qpic\.cn$/i.test(url.hostname) ? url.hostname + url.pathname.replace(/\/\d+$/, "") : url.href;
+				} catch {
+					return null;
+				}
+			}
+			const wanted = original(uploaded.url);
+			const background = (el) => el?.style.backgroundImage.match(/^url\(["']?(.*?)["']?\)$/)?.[1];
+			let active;
+			try {
+				open.click();
+				active = await wait(() => dialog("选择图片"), 5e3);
+				const item = active && await wait(() => [...active.querySelectorAll(".appmsg_content_img_item")].find((li) => {
+					const src = background(li.querySelector(".appmsg_content_img"));
+					return src && original(src) === wanted;
+				}), 5e3);
+				if (!item) throw new Error("微信选图窗口未找到指定的封面原图");
+				item.click();
+				const next = await wait(() => button(active, "下一步"), 3e3);
+				if (!next) throw new Error("微信封面图片尚未选中");
+				next.click();
+				const crop = await wait(() => dialog("编辑封面"), 5e3);
+				if (!crop) throw new Error("微信封面裁剪窗口未打开");
+				active = crop;
+				const confirm = await wait(() => button(crop, "确认"), 5e3);
+				if (!confirm) throw new Error("微信封面裁剪尚未就绪");
+				confirm.click();
+				if (!await wait(() => !dialog("编辑封面") && background(area.querySelector(".js_cover_preview_new")), 8e3)) throw new Error("微信未确认封面裁剪结果");
+			} catch (error) {
+				if (active?.getClientRects().length) button(active, "取消")?.click();
+				throw error;
+			}
+		}
+		let coverError;
+		if (selectWechatCover) try {
+			await chooseWechatCover();
+		} catch (error) {
+			coverError = error;
+		}
 		function insertionRange() {
 			if (!editor.isConnected) return null;
 			const range = doc.createRange();
@@ -264,14 +311,15 @@ async function uploadInEditor(image, cover, expectedOrigin, timeout = 3e4, requi
 		}
 		await sleep(50);
 		if (!await wait(restored, 1500)) throw new Error(`图片“${image.name}”已上传，编辑器未确认临时内容清理完成，请检查当前草稿`);
+		if (coverError) throw coverError;
 		return uploaded.url;
 	}
 }
-async function resolveBodyImages(content, upload, importsHtmlImages = false) {
+async function resolveBodyImages(content, upload, importsHtmlImages = false, includeCover = false) {
 	const { images, ...post } = content;
 	const urls = /* @__PURE__ */ new Map();
 	for (const image of images || []) {
-		if (!post.body?.includes(image.key) && !post.markdown?.includes(image.key)) continue;
+		if (!post.body?.includes(image.key) && !post.markdown?.includes(image.key) && !(includeCover && image.key === post.thumb)) continue;
 		if (importsHtmlImages && image.sourceUrl) urls.set(image.key, image.sourceUrl);
 		else {
 			const url = new URL(await upload(image));
@@ -2495,12 +2543,53 @@ async function fillWechatContent(title, htmlBody) {
 		};
 	}
 }
-function saveWechatDraft() {
-	const saveDraftBtn = Array.from(document.querySelectorAll("button")).find((b) => b.textContent.includes("保存为草稿"));
+async function saveWechatDraft(description, hasCover) {
+	let notice;
+	if (hasCover && !document.querySelector("#js_cover_area .js_cover_preview_new")?.style.backgroundImage?.startsWith("url(")) return {
+		success: false,
+		error: "微信编辑器没有保留指定封面，请检查当前草稿"
+	};
+	if (description) {
+		const field = document.querySelector("#js_description, textarea[name=\"digest\"]");
+		if (!field) return {
+			success: false,
+			error: "未找到微信公众号摘要输入框"
+		};
+		const limit = Number(field.getAttribute("max-length")) || 120;
+		let digest = "";
+		let units = 0;
+		for (const char of description) {
+			units += char.charCodeAt(0) <= 255 ? 1 : 2 * char.length;
+			if (units > limit * 2) break;
+			digest += char;
+		}
+		if (digest !== description) notice = `已按微信摘要 ${limit} 字上限截断，原描述保留在工作台`;
+		field.focus();
+		Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(field, digest);
+		field.dispatchEvent(new Event("input", { bubbles: true }));
+		field.dispatchEvent(new KeyboardEvent("keyup", {
+			key: "End",
+			code: "End",
+			bubbles: true
+		}));
+		field.dispatchEvent(new Event("change", { bubbles: true }));
+		field.blur();
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		const counter = field.closest("#js_description_span")?.querySelector(".frm_counter");
+		const expectedCount = Math.ceil(digest.replace(/[^\x00-\xff]/g, "xx").length / 2);
+		if (field.value !== digest || counter && parseInt(counter.textContent, 10) !== expectedCount) return {
+			success: false,
+			error: "微信编辑器未接受发布描述，请检查摘要"
+		};
+	}
+	const saveDraftBtn = Array.from(document.querySelectorAll("button")).find((b) => !b.disabled && b.textContent.trim() === "保存为草稿");
 	if (saveDraftBtn) {
 		saveDraftBtn.click();
 		console.log("[COSE] 已点击保存为草稿");
-		return { success: true };
+		return {
+			success: true,
+			notice
+		};
 	}
 	return {
 		success: false,
@@ -2637,16 +2726,22 @@ async function syncWechatContent(tab, content, helpers) {
 		};
 	}
 	console.log("[COSE] 微信内容填充成功，字数:", fillResult.wordCount);
-	await helpers.images?.cover?.(tab);
 	await new Promise((resolve) => setTimeout(resolve, 500));
-	await chrome.scripting.executeScript({
+	const [saved] = await chrome.scripting.executeScript({
 		target: { tabId: tab.id },
 		func: saveWechatDraft,
+		args: [content.desc ?? "", Boolean(content.thumb)],
 		world: "MAIN"
 	});
+	if (!saved?.result?.success) return {
+		success: false,
+		message: saved?.result?.error || "微信未提交草稿保存",
+		tabId: tab.id
+	};
 	return {
 		success: true,
 		message: "已同步并保存为草稿",
+		notice: saved.result.notice,
 		tabId: tab.id
 	};
 }
@@ -4053,6 +4148,20 @@ async function checkPlatformLogin(platform) {
 }
 async function syncDraftWithImages(platformId, content) {
 	const platform = PLATFORMS.find((p) => p?.id === platformId);
+	const wechat = platformId === "wechat";
+	if (wechat && content.thumb && !content.images?.some((image) => image.key === content.thumb)) {
+		const key = `studio-cover-${crypto.randomUUID()}~`;
+		const original = content.thumb.startsWith("data:") ? { data: content.thumb } : { sourceUrl: content.thumb };
+		content = {
+			...content,
+			thumb: key,
+			images: [...content.images || [], {
+				key,
+				name: "封面",
+				...original
+			}]
+		};
+	}
 	if (!platform || !content.images?.length) return syncToPlatform(platformId, content, {});
 	const origin = new URL(platform.publishUrl).origin;
 	async function upload(tab, image, cover = false) {
@@ -4065,12 +4174,14 @@ async function syncDraftWithImages(platformId, content) {
 				cover,
 				origin,
 				3e4,
-				platformId === "bilibili"
+				platformId === "bilibili",
+				wechat && image.key === content.thumb
 			]
 		});
 		if (!reply?.result?.ok) throw new Error(reply?.result?.error || "平台图片上传未完成");
 		return reply.result.url;
 	}
+	if (wechat) return syncToPlatform(platformId, content, { prepare: (tab) => resolveBodyImages(content, (image) => upload(tab, image), false, true) });
 	let coverHandled = false;
 	let warning;
 	const images = {

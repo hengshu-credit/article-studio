@@ -681,6 +681,13 @@ async function pasteWithDebugger(tabId) {
 // Each platform resolves its own copy using its own authenticated editor.
 async function syncDraftWithImages(platformId, content) {
   const platform = PLATFORMS.find(p => p?.id === platformId)
+  const wechat = platformId === 'wechat'
+  // Older clients send a cover URL or data URL instead of an image manifest.
+  if (wechat && content.thumb && !content.images?.some(image => image.key === content.thumb)) {
+    const key = `studio-cover-${crypto.randomUUID()}~`
+    const original = content.thumb.startsWith('data:') ? { data: content.thumb } : { sourceUrl: content.thumb }
+    content = { ...content, thumb: key, images: [...(content.images || []), { key, name: '封面', ...original }] }
+  }
   if (!platform || !content.images?.length) return syncToPlatform(platformId, content, {})
   const origin = new URL(platform.publishUrl).origin
   async function upload(tab, image, cover = false) {
@@ -688,11 +695,17 @@ async function syncDraftWithImages(platformId, content) {
       target: { tabId: tab.id },
       world: 'MAIN',
       func: uploadInEditor,
-      args: [image, cover, origin, 30000, platformId === 'bilibili'],
+      args: [image, cover, origin, 30000, platformId === 'bilibili', wechat && image.key === content.thumb],
     })
     if (!reply?.result?.ok)
       throw new Error(reply?.result?.error || '平台图片上传未完成')
     return reply.result.url
+  }
+  if (wechat) {
+    // WeChat commits the crop while the image is in its native body picker.
+    return syncToPlatform(platformId, content, {
+      prepare: tab => resolveBodyImages(content, image => upload(tab, image), false, true),
+    })
   }
   let coverHandled = false
   let warning

@@ -36,4 +36,17 @@ describe(`paragraph formatting in rendered and delivered articles`, () => {
     expect(root.querySelector(`strong`)?.textContent).toBe(`保留文字`)
     expect(root.textContent).toBe(`保留文字和后文`)
   })
+
+  it('keeps a marked HTML image paragraph without generating spacer paragraphs', () => {
+    const renderer = initRenderer()
+    const source = `上文\n\n${NO_INDENT_MARKER} <p align="center"><img alt="分隔图" src="separator.png"></p>\n\n下文\n\n<p><br></p>`
+    const { html } = renderMarkdown(source, renderer)
+    const root = document.createElement('div')
+    root.innerHTML = applyComponentTheme(html, DEFAULT_COMPONENT_THEME)
+    expect(root.querySelectorAll('p')).toHaveLength(4)
+    const picture = root.querySelector('p[align="center"]') as HTMLElement
+    expect(picture.style.textIndent).toBe('0px')
+    expect(picture.querySelector('img')?.alt).toBe('分隔图')
+    expect(root.querySelector('p > br')).not.toBeNull()
+  })
 })

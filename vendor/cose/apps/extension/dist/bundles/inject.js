@@ -456,7 +456,7 @@
 						});
 						if (result?.success) {
 							status.accounts[i].status = "done";
-							status.accounts[i].msg = result.warning || "同步成功";
+							status.accounts[i].msg = result.warning || result.notice || "同步成功";
 							status.accounts[i].warning = result.warning;
 							status.accounts[i].editResp = { draftLink: "" };
 						} else {

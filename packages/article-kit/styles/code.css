@@ -2,3 +2,9 @@
 pre.hljs.code__pre {
   box-shadow: 0 2px 10px var(--md-code-shadow);
 }
+pre.hljs.code__pre,
+pre.code__pre > code,
+pre.code__pre .code-scroll {
+  scrollbar-color: var(--studio-scrollbar-thumb) var(--studio-scrollbar-track);
+  scrollbar-width: thin;
+}

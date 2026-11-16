@@ -2,6 +2,7 @@ import type { RendererAPI } from '@md/shared/types'
 import { applyComponentTheme, decorateWeChatReference, WECHAT_REFERENCE_PRESET } from '@article-studio/article-kit'
 import { postProcessHtml, renderMarkdown } from '@md/core/utils'
 import { t } from '@/i18n/translate'
+import { extractPreviewMap, markPreviewBlock } from '@/lib/preview/scroll-sync-blocks'
 import { resolveAssetUrl } from '@/services/emoji/urlResolver'
 import { useCustomComponentStore } from './customComponent'
 import { useThemeStore } from './theme'
@@ -16,6 +17,7 @@ export interface RenderOptions {
 /** Markdown rendering, HTML output, and heading extraction. */
 export const useRenderStore = defineStore(`render`, () => {
   const output = ref(``)
+  const scrollMap = shallowRef<{ markdown: string, blocks: ReturnType<typeof extractPreviewMap>['blocks'] }>()
 
   const readingTime = reactive({
     chars: 0,
@@ -151,16 +153,20 @@ export const useRenderStore = defineStore(`render`, () => {
       assetResolver: resolveAssetUrl,
     })
 
-    const { html: baseHtml, readingTime: readingTimeResult } = renderMarkdown(content, renderer)
+    const { html: baseHtml, readingTime: readingTimeResult } = renderMarkdown(content, renderer, markPreviewBlock)
 
     readingTime.chars = content.length
     readingTime.words = readingTimeResult.words
     readingTime.minutes = Math.ceil(readingTimeResult.minutes)
 
-    output.value = extractTitles(applyComponentTheme(decorateWeChatReference(
+    const themed = extractTitles(applyComponentTheme(decorateWeChatReference(
       postProcessHtml(baseHtml, readingTimeResult, renderer),
       themeStore.articlePresetId === WECHAT_REFERENCE_PRESET,
     ), { primaryColor: themeStore.primaryColor, fontFamily: themeStore.fontFamily, fontSize: themeStore.fontSize, lineHeight: themeStore.lineHeight }))
+
+    const mapped = extractPreviewMap(themed)
+    output.value = mapped.html
+    scrollMap.value = { markdown: content, blocks: mapped.blocks }
 
     lastContent = content
     lastOptionsFingerprint = optionsFingerprint
@@ -199,6 +205,7 @@ export const useRenderStore = defineStore(`render`, () => {
   return {
     // State
     output,
+    scrollMap,
     readingTime,
     titleList,
 

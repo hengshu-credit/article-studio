@@ -45,12 +45,13 @@ export function sanitizeHtml(html: string): string {
   return html
 }
 
-export function renderMarkdown(raw: string, renderer: RendererAPI) {
+export function renderMarkdown(raw: string, renderer: RendererAPI, decorateBlock?: (html: string, sourceLine: number) => string) {
   const { markdownContent, readingTime }
     = renderer.parseFrontMatterAndContent(raw)
 
   // marked -> html
-  let html = renderer.renderMarkdownToHtml(markdownContent)
+  const skippedLines = decorateBlock ? raw.slice(0, raw.length - markdownContent.length).split('\n').length - 1 : 0
+  let html = renderer.renderMarkdownToHtml(markdownContent, decorateBlock && ((block, line) => decorateBlock(block, line + skippedLines)))
   html = stripBreakBeforeInlineKatex(html)
   html = sanitizeHtml(html)
   return { html, readingTime }

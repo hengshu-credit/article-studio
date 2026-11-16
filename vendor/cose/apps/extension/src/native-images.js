@@ -1,5 +1,5 @@
 /** Serialized into the platform tab. All file handling runs against its own editor. */
-export async function uploadInEditor(image, cover, expectedOrigin, timeout = 30000, requireEmptyDraft = false) {
+export async function uploadInEditor(image, cover, expectedOrigin, timeout = 30000, requireEmptyDraft = false, selectWechatCover = false) {
   try {
     return { ok: true, url: await upload() }
   } catch (error) {
@@ -167,6 +167,59 @@ export async function uploadInEditor(image, cover, expectedOrigin, timeout = 300
       ? '平台未返回可保存的图片地址，请在目标编辑器检查文件粘贴和上传结果'
       : '平台未能转存这张外链图片，请下载后从素材库插入并重新分发')
 
+    // WeChat's picker reads the image atoms in the current body. Select the
+    // uploaded original before removing its temporary atom, even for a cover
+    // which is not present in the finished article.
+    async function chooseWechatCover() {
+      const area = doc.querySelector('#js_cover_area')
+      const open = area?.querySelector('.js_selectCoverFromContent')
+      if (!open) throw new Error('未找到微信的“从正文选择”封面入口')
+      const dialog = heading => [...doc.querySelectorAll('.weui-desktop-dialog')].find(el =>
+        el.getClientRects().length && el.querySelector('h3')?.textContent.trim() === heading)
+      const button = (el, text) => [...el.querySelectorAll('button')].find(b =>
+        !b.disabled && b.textContent.trim() === text)
+      function original(src) {
+        try {
+          const url = new URL(src, doc.baseURI)
+          // WeChat serves thumbnails of the same qpic asset at /0 and /640.
+          return /(^|\.)qpic\.cn$/i.test(url.hostname)
+            ? url.hostname + url.pathname.replace(/\/\d+$/, '')
+            : url.href
+        } catch { return null }
+      }
+      const wanted = original(uploaded.url)
+      const background = el => el?.style.backgroundImage.match(/^url\(["']?(.*?)["']?\)$/)?.[1]
+      let active
+      try {
+        open.click()
+        active = await wait(() => dialog('选择图片'), 5000)
+        const item = active && await wait(() => [...active.querySelectorAll('.appmsg_content_img_item')].find(li => {
+          const src = background(li.querySelector('.appmsg_content_img'))
+          return src && original(src) === wanted
+        }), 5000)
+        if (!item) throw new Error('微信选图窗口未找到指定的封面原图')
+        item.click()
+        const next = await wait(() => button(active, '下一步'), 3000)
+        if (!next) throw new Error('微信封面图片尚未选中')
+        next.click()
+        const crop = await wait(() => dialog('编辑封面'), 5000)
+        if (!crop) throw new Error('微信封面裁剪窗口未打开')
+        active = crop
+        const confirm = await wait(() => button(crop, '确认'), 5000)
+        if (!confirm) throw new Error('微信封面裁剪尚未就绪')
+        confirm.click()
+        if (!await wait(() => !dialog('编辑封面') && background(area.querySelector('.js_cover_preview_new')), 8000))
+          throw new Error('微信未确认封面裁剪结果')
+      } catch (error) {
+        if (active?.getClientRects().length) button(active, '取消')?.click()
+        throw error
+      }
+    }
+    let coverError
+    if (selectWechatCover) {
+      try { await chooseWechatCover() } catch (error) { coverError = error }
+    }
+
     function insertionRange() {
       if (!editor.isConnected) return null
       const range = doc.createRange()
@@ -266,15 +319,16 @@ export async function uploadInEditor(image, cover, expectedOrigin, timeout = 300
     await sleep(50)
     if (!await wait(restored, 1500))
       throw new Error(`图片“${image.name}”已上传，编辑器未确认临时内容清理完成，请检查当前草稿`)
+    if (coverError) throw coverError
     return uploaded.url
   }
 }
 
-export async function resolveBodyImages(content, upload, importsHtmlImages = false) {
+export async function resolveBodyImages(content, upload, importsHtmlImages = false, includeCover = false) {
   const { images, ...post } = content
   const urls = new Map()
   for (const image of images || []) {
-    if (!post.body?.includes(image.key) && !post.markdown?.includes(image.key)) continue
+    if (!post.body?.includes(image.key) && !post.markdown?.includes(image.key) && !(includeCover && image.key === post.thumb)) continue
     if (importsHtmlImages && image.sourceUrl) {
       // These adapters can import CORS-restricted external URLs and confirm native storage.
       urls.set(image.key, image.sourceUrl)

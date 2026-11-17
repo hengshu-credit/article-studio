@@ -2,6 +2,7 @@ import type { ArticleArtifact } from './article-artifact'
 import type { CoseImage } from '@/types/cose'
 import { mapMarkdownImages } from '@md/shared/editor/map-markdown-images'
 import { inspectPublishMarkup } from '@md/shared/editor/publish-markup'
+import { prepareWechatHtml } from '@/lib/article-studio/artifact-html'
 import { blobToDataUrl } from '@/lib/assets/blob'
 import { inlineMaterialImageSource, originalImageSource } from '@/services/materials/export'
 import { renderPlatformBody } from './platform-body'
@@ -83,8 +84,10 @@ export async function preparePublishImages(artifact: Pick<ArticleArtifact, 'html
   }
   let markdown: string | undefined
   let plainText: string | undefined
+  let wechatHtml: string | undefined
   return {
-    async forCover(src: string, textOnly = false) {
+    async forCover(src: string, channel: string) {
+      const textOnly = channel === 'douban'
       const cover = src ? await file(src, '封面') : undefined
       const bodyFiles = textOnly ? [] : bodyImages
       const images = cover && !bodyFiles.includes(cover) ? [...bodyFiles, cover] : bodyFiles
@@ -94,6 +97,10 @@ export async function preparePublishImages(artifact: Pick<ArticleArtifact, 'html
         return { ...media, markdown: plainText, content: plainText }
       }
       markdown ??= prepareMarkdown()
+      if (channel === 'wechat') {
+        wechatHtml ??= prepareWechatHtml(html)
+        return { ...media, markdown, content: wechatHtml, wechatHtml }
+      }
       return { ...media, markdown, content: html, wechatHtml: html }
     },
   }

@@ -1,6 +1,6 @@
 import { WECHAT_REFERENCE_PRESET } from '@article-studio/article-kit'
 import { nextTick } from 'vue'
-import { inspectArticleHtml, makeArticleDocument, wrapArticleHtml } from '@/lib/article-studio/artifact-html'
+import { inspectArticleHtml, makeArticleDocument, prepareWechatHtml, wrapArticleHtml } from '@/lib/article-studio/artifact-html'
 import { processClipboardContent } from '@/services/export/clipboard'
 import { inlineMaterialImages } from '@/services/materials/export'
 import { useEditorStore } from '@/stores/editor'
@@ -20,8 +20,8 @@ export interface ArticleArtifact {
 
 let building = false
 
-/** All delivery paths consume this exact HTML, including the isolated draft preview. */
-export async function buildArticleArtifact(): Promise<ArticleArtifact> {
+/** Build the shared article, optionally preparing the WeChat preview and its downloadable HTML. */
+export async function buildArticleArtifact(target: 'generic' | 'wechat' = 'generic'): Promise<ArticleArtifact> {
   if (building)
     throw new Error(`正在生成成稿，请稍候再试`)
   building = true
@@ -43,7 +43,7 @@ export async function buildArticleArtifact(): Promise<ArticleArtifact> {
     const imageHtml = await inlineMaterialImages(result.html, window.location.origin, materialImages)
     if (useEditorStore().getContent() !== markdown)
       throw new Error(`内容已更新，请重新生成成稿`)
-    const html = wrapArticleHtml(imageHtml, {
+    const html = wrapArticleHtml(target === 'wechat' ? prepareWechatHtml(imageHtml) : imageHtml, {
       fontFamily: theme.fontFamily,
       fontSize: theme.fontSize,
       lineHeight: theme.lineHeight,

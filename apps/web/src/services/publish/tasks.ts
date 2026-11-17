@@ -17,7 +17,7 @@ export async function buildPublishTasks(artifact: Pick<ArticleArtifact, 'html' |
     if (!fields)
       throw new Error(`缺少 ${account.title} 的发布信息`)
     tasks.push({
-      post: { ...fields, ...await article.forCover(fields.thumb, account.type === 'douban') },
+      post: { ...fields, ...await article.forCover(fields.thumb, account.type) },
       accounts: [{ ...account }],
     })
   }

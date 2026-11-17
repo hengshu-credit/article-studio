@@ -61,7 +61,7 @@ async function refreshArtifact() {
   busy.value = true
   error.value = ``
   artifact.value = null
-  try { artifact.value = await buildArticleArtifact() }
+  try { artifact.value = await buildArticleArtifact('wechat') }
   catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
   finally { busy.value = false }
 }

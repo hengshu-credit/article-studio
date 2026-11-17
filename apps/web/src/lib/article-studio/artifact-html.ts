@@ -1,5 +1,39 @@
 import { prepareWeChatStructure } from './wechat-structure'
 
+function isWechatLink(value: string): boolean {
+  const href = value.trim()
+  if (!/^(?:https?:)?\/\//i.test(href))
+    return false
+  try {
+    const url = new URL(href.startsWith('//') ? `https:${href}` : href)
+    return url.hostname === 'mp.weixin.qq.com'
+  }
+  catch {
+    return false
+  }
+}
+
+function externalWechatLinks(root: ParentNode) {
+  return [...root.querySelectorAll('a, area')].filter(link =>
+    ['href', 'xlink:href', 'data-href'].some((name) => {
+      const value = link.getAttribute(name)
+      return value !== null && !isWechatLink(value)
+    }),
+  )
+}
+
+/** Remove unsupported navigation while retaining the contents of linked text and images. */
+export function prepareWechatHtml(html: string): string {
+  const template = document.createElement('template')
+  template.innerHTML = html
+  const external = externalWechatLinks(template.content)
+  if (!external.length)
+    return html
+  for (const link of external)
+    link.replaceWith(...link.childNodes)
+  return template.innerHTML
+}
+
 export function wrapArticleHtml(html: string, style: { fontFamily: string, fontSize: string, lineHeight: string, referenceTheme?: boolean }): string {
   const article = document.createElement(`section`)
   article.setAttribute(`data-article-kit`, `v1`)
@@ -52,7 +86,7 @@ export function inspectArticleHtml(html: string): string[] {
     warnings.push(`包含宽表格，请在手机预览检查；可拆表或导出为图片。`)
   if (/var\(--|color-mix\(/.test(html))
     warnings.push(`部分 CSS 仍使用变量或高级颜色语法，公众号可能改写，请核查自定义样式。`)
-  if (root.querySelector(`a[href^="http"]`))
+  if (externalWechatLinks(root).length)
     warnings.push(`包含外链。公众号对正文链接有限制，可开启引用模式或改用二维码。`)
   return warnings
 }

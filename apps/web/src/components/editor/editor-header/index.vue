@@ -4,6 +4,7 @@ import { defineAsyncComponent } from 'vue'
 import brandLogo from '@/assets/images/hengshucredit_animated.svg'
 import ArticleStudioDialog from '@/components/editor/ArticleStudioDialog.vue'
 import { useEditorRefresh } from '@/composables/useEditorRefresh'
+import { prepareWechatHtml } from '@/lib/article-studio/artifact-html'
 import { delay } from '@/lib/delay'
 import { generatePureHTML } from '@/services/export'
 import { buildArticleArtifact } from '@/services/publish/article-artifact'
@@ -148,6 +149,7 @@ async function copy() {
         window.getSelection()?.removeAllRanges()
 
         const temp = processedClipboardContent.html
+        const wechatHtml = prepareWechatHtml(temp)
 
         if (copyMode.value === `txt`) {
           try {
@@ -156,14 +158,14 @@ async function copy() {
             }
 
             const clipboardItem = new ClipboardItem({
-              'text/html': new Blob([temp], { type: `text/html` }),
+              'text/html': new Blob([wechatHtml], { type: `text/html` }),
               'text/plain': new Blob([processedClipboardContent.plainText], { type: `text/plain` }),
             })
 
             await writeClipboardItems([clipboardItem])
           }
           catch (error) {
-            const fallbackSucceeded = fallbackCopyUsingExecCommand(temp)
+            const fallbackSucceeded = fallbackCopyUsingExecCommand(wechatHtml)
             if (!fallbackSucceeded) {
               window.getSelection()?.removeAllRanges()
               editorRefresh()
@@ -191,7 +193,7 @@ async function copy() {
         window.dispatchEvent(
           new CustomEvent(`copyToMp`, {
             detail: {
-              content: temp,
+              content: wechatHtml,
             },
           }),
         )

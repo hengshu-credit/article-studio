@@ -21,7 +21,11 @@ describe('article body formats sent to COSE', () => {
     const source = [starter, '<div>手写 <strong>强调</strong> 和 <a href="https://example.com/doc">文档</a></div>', '`<aside>`', '```html\n<section>\n  <b>示例</b>\n</section>\n```'].join('\n\n')
     const { html } = renderMarkdown(source, renderer)
     const [wechat, juejin, douban] = await deliver(source, html, ['wechat', 'juejin', 'douban'])
-    expect(wechat.content).toBe(html)
+    expect(wechat.content).toContain('演示样本量')
+    expect(wechat.content).toContain('先给结论，再给证据')
+    expect(wechat.content).toContain('<strong>强调</strong> 和 文档')
+    expect(wechat.content).not.toContain('href="https://example.com/doc"')
+    expect(wechat.content).toBe(wechat.wechatHtml)
     expect(wechat.wechatHtml).toContain('hljs-')
     expect(juejin.markdown).toContain('演示样本量')
     expect(juejin.markdown).toContain('8 条')
@@ -39,6 +43,28 @@ describe('article body formats sent to COSE', () => {
     expect(douban.content).toContain('文档（https://example.com/doc）')
     expect(douban.content).not.toMatch(/MetricCardV1|\*\*强调\*\*|```|<div>/)
     expect(douban.markdown).toBe(douban.content)
+  })
+
+  it('unwraps external links only in the WeChat draft, including links around an uploaded image', async () => {
+    const allowed = ['https://mp.weixin.qq.com/s/a?x=1#p', '//MP.WEIXIN.QQ.COM/s/b', 'http://mp.weixin.qq.com/s/c']
+    const rejected = ['https://example.org', 'https://mp.weixin.qq.com.example.org/s', 'https://mp.weixin.qq.com@example.org/s', 'https://sub.mp.weixin.qq.com', '/relative', '#local', 'mailto:a@example.org', 'javascript:void(0)', 'https://[bad']
+    const bytes = 'data:image/png;base64,Ynl0ZXM='
+    const html = [
+      ...allowed.map(href => `<a href="${href}">公众号</a>`),
+      ...rejected.map((href, i) => `<a href="${href}"><em>资料 ${i}</em></a>`),
+      `<a href="https://example.org/report"><img src="${bytes}" alt="报告"></a>`,
+      '<code>https://example.org</code>',
+    ].join('')
+    const [wechat, other] = await deliver('正文', html, ['wechat', 'zhihu'])
+    const root = document.createElement('div')
+    root.innerHTML = wechat.content
+    expect(wechat.content).toBe(wechat.wechatHtml)
+    expect([...root.querySelectorAll('a')].map(a => a.getAttribute('href'))).toEqual(allowed)
+    expect([...root.querySelectorAll('em')].map(em => em.textContent)).toEqual(rejected.map((_, i) => `资料 ${i}`))
+    expect(root.querySelector('img')?.getAttribute('src')).toBe(wechat.images![0].key)
+    expect(root.querySelector('a img')).toBeNull()
+    expect(root.querySelector('code')?.textContent).toBe('https://example.org')
+    expect(other.content).toBe(html.replace(bytes, wechat.images![0].key))
   })
 
   it('keeps diagram fences and math expressions in articles that also contain HTML', async () => {

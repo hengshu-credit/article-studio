@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DecorationSet } from '@codemirror/view'
-import { StateEffect, StateField } from '@codemirror/state'
+import { Compartment, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, EditorView } from '@codemirror/view'
 import { CaseSensitive, ChevronDown, ChevronRight, ChevronUp, Regex, Replace, ReplaceAll, WholeWord, X } from '@lucide/vue'
 
@@ -12,7 +12,6 @@ const { t } = useI18n()
 
 const showSearchTab = ref(false)
 const searchInputRef = ref<{ focus: () => void, select: () => void } | null>(null)
-
 const searchWord = ref(``)
 const isRegex = ref(false)
 const isCaseSensitive = ref(false)
@@ -20,254 +19,143 @@ const findInSelection = ref(false)
 const indexOfMatch = ref(0)
 const showReplace = ref(false)
 const replaceWord = ref(``)
-const selectionRange = ref<{ from: number, to: number } | null>(null)
 
-const matchPositions = ref<Array<Array<{ line: number, ch: number }>>>([])
-const numberOfMatches = computed(() => {
-  return matchPositions.value.length
-})
+interface MatchRange { from: number, to: number }
 
-const currentMatchPosition = computed(() => {
-  if (!checkMatchNumber())
+const selectionRange = shallowRef<MatchRange | null>(null)
+const documentText = shallowRef(props.editorView.state.doc)
+const pattern = computed(() => {
+  if (!searchWord.value)
     return null
-  return matchPositions.value[indexOfMatch.value]
+  const source = isRegex.value ? searchWord.value : searchWord.value.replace(/[.*+?^${}()|[\]\\]/g, `\\$&`)
+  try {
+    return new RegExp(source, isCaseSensitive.value ? `gm` : `gmi`)
+  }
+  catch {
+    return null
+  }
 })
 
-const setSearchHighlights = StateEffect.define<DecorationSet>()
+const matchPositions = computed<MatchRange[]>(() => {
+  if (!showSearchTab.value || !pattern.value)
+    return []
+  const doc = documentText.value
+  const scope = findInSelection.value ? selectionRange.value : null
+  const from = scope?.from ?? 0
+  const content = doc.sliceString(from, scope?.to ?? doc.length)
+  const matches: MatchRange[] = []
+  for (const match of content.matchAll(pattern.value)) {
+    if (match[0].length)
+      matches.push({ from: from + match.index, to: from + match.index + match[0].length })
+  }
+  return matches
+})
+const numberOfMatches = computed(() => matchPositions.value.length)
+const currentMatchPosition = computed(() => matchPositions.value[indexOfMatch.value])
 
+const searchExtension = new Compartment()
+const setSearchHighlights = StateEffect.define<DecorationSet>()
 const searchHighlightField = StateField.define<DecorationSet>({
-  create() {
-    return Decoration.none
-  },
+  create: () => Decoration.none,
   update(highlights, tr) {
     for (const effect of tr.effects) {
-      if (effect.is(setSearchHighlights)) {
+      if (effect.is(setSearchHighlights))
         return effect.value
-      }
     }
-    return highlights
+    return highlights.map(tr.changes)
   },
   provide: f => EditorView.decorations.from(f),
 })
 
 onMounted(() => {
-  if (!props.editorView.state.field(searchHighlightField, false)) {
-    props.editorView.dispatch({
-      effects: StateEffect.appendConfig.of(searchHighlightField),
-    })
-  }
-})
-
-watch([searchWord, isRegex, isCaseSensitive, findInSelection], () => {
-  const debouncedSearch = useDebounceFn(() => {
-    matchPositions.value = []
-
-    if (searchWord.value === ``) {
-      clearAllMarks()
-    }
-    else {
-      indexOfMatch.value = 0
-      findAllMatches()
-    }
-  }, 300)
-
-  debouncedSearch()
-})
-
-watch([indexOfMatch, matchPositions], () => {
-  markMatch()
-})
-
-watch(showSearchTab, async () => {
-  if (!showSearchTab.value) {
-    clearAllMarks()
-    showReplace.value = false
-    findInSelection.value = false
-    selectionRange.value = null
-  }
-  else {
-    // Auto-enable find-in-selection when text is selected
-    const selection = props.editorView.state.selection.main
-    if (!selection.empty) {
-      findInSelection.value = true
-      selectionRange.value = { from: selection.from, to: selection.to }
-    }
-    markMatch()
-    // Focus search input after DOM update without losing editor selection
-    await nextTick()
-    // setTimeout keeps editor selection when input focuses
-    setTimeout(() => {
-      searchInputRef.value?.focus()
-      searchInputRef.value?.select()
-    }, 0)
-  }
-})
-
-function clearAllMarks() {
   props.editorView.dispatch({
-    effects: setSearchHighlights.of(Decoration.none),
+    effects: StateEffect.appendConfig.of(searchExtension.of([
+      searchHighlightField,
+      EditorView.updateListener.of(({ docChanged, changes, state }) => {
+        if (!docChanged)
+          return
+        documentText.value = state.doc
+        const range = selectionRange.value
+        if (range)
+          selectionRange.value = { from: changes.mapPos(range.from, -1), to: changes.mapPos(range.to, 1) }
+      }),
+    ])),
   })
+})
+
+onBeforeUnmount(() => {
+  props.editorView.dispatch({ effects: searchExtension.reconfigure([]) })
+})
+
+watch(numberOfMatches, (count) => {
+  indexOfMatch.value = Math.max(0, Math.min(indexOfMatch.value, count - 1))
+})
+
+watch([matchPositions, indexOfMatch], () => {
+  const marks = matchPositions.value.map(({ from, to }, index) =>
+    Decoration.mark({ class: index === indexOfMatch.value ? `cm-searchMatch-selected` : `cm-searchMatch` }).range(from, to))
+  props.editorView.dispatch({ effects: setSearchHighlights.of(Decoration.set(marks)) })
+})
+
+function revealMatch() {
+  const match = currentMatchPosition.value
+  if (match)
+    props.editorView.dispatch({ selection: { anchor: match.from }, scrollIntoView: true })
 }
 
-function markMatch() {
-  const decorations: any[] = []
+// A document edit refreshes counts and highlights without pulling the caret away from the edit.
+watch([showSearchTab, searchWord, isRegex, isCaseSensitive, findInSelection], () => {
+  indexOfMatch.value = 0
+  revealMatch()
+})
 
-  matchPositions.value.forEach((match, idx) => {
-    const from = match[0]
-    const to = match[1]
-    const fromLine = props.editorView.state.doc.line(from.line + 1)
-    const toLine = props.editorView.state.doc.line(to.line + 1)
-    const fromPos = fromLine.from + from.ch
-    const toPos = toLine.from + to.ch
-
-    const isCurrentMatch = idx === indexOfMatch.value
-    const mark = Decoration.mark({
-      class: isCurrentMatch ? `cm-searchMatch-selected` : `cm-searchMatch`,
-    })
-
-    decorations.push(mark.range(fromPos, toPos))
-  })
-
-  const decorationSet = Decoration.set(decorations, true)
-  props.editorView.dispatch({
-    effects: setSearchHighlights.of(decorationSet),
-  })
-
-  if (matchPositions.value[indexOfMatch.value]?.[0]) {
-    const pos = matchPositions.value[indexOfMatch.value][0]
-    const docLine = props.editorView.state.doc.line(pos.line + 1)
-    const offset = docLine.from + pos.ch
-    props.editorView.dispatch({
-      selection: { anchor: offset, head: offset },
-      scrollIntoView: true,
-    })
+function nextMatch(direction = 1) {
+  const count = numberOfMatches.value
+  if (count) {
+    indexOfMatch.value = (indexOfMatch.value + direction + count) % count
+    revealMatch()
   }
 }
 
-function findAllMatches() {
-  if (!searchWord.value || !showSearchTab.value)
-    return
-
-  let searchFrom = 0
-  let searchTo = props.editorView.state.doc.length
-  if (findInSelection.value && selectionRange.value) {
-    searchFrom = selectionRange.value.from
-    searchTo = selectionRange.value.to
-  }
-
-  const content = props.editorView.state.sliceDoc(searchFrom, searchTo)
-  const searchTerm = searchWord.value
-  const _matchPositions: Array<Array<{ line: number, ch: number }>> = []
-
-  if (searchTerm) {
-    if (isRegex.value) {
-      try {
-        const flags = `gm${isCaseSensitive.value ? `` : `i`}`
-        const regex = new RegExp(searchTerm, flags)
-        let match
-        while (true) {
-          match = regex.exec(content)
-          if (match === null)
-            break
-          if (match[0].length === 0) {
-            regex.lastIndex++
-            continue
-          }
-          const startPos = match.index + searchFrom
-          const endPos = match.index + match[0].length + searchFrom
-
-          const startLineObj = props.editorView.state.doc.lineAt(startPos)
-          const endLineObj = props.editorView.state.doc.lineAt(endPos)
-
-          _matchPositions.push([
-            { line: startLineObj.number - 1, ch: startPos - startLineObj.from },
-            { line: endLineObj.number - 1, ch: endPos - endLineObj.from },
-          ])
-        }
-      }
-      catch (e) {
-        console.warn(`Invalid Regex`, e)
-      }
-    }
-    else {
-      const lines = content.split(`\n`)
-      const searchTermForCompare = isCaseSensitive.value ? searchTerm : searchTerm.toLowerCase()
-
-      lines.forEach((line, lineIndex) => {
-        const lineForCompare = isCaseSensitive.value ? line : line.toLowerCase()
-        let startIndex = 0
-        let index = lineForCompare.indexOf(searchTermForCompare, startIndex)
-
-        while (index !== -1) {
-          const actualLineObj = props.editorView.state.doc.lineAt(searchFrom)
-          const actualLineNumber = actualLineObj.number - 1 + lineIndex
-
-          _matchPositions.push([
-            { line: actualLineNumber, ch: index },
-            { line: actualLineNumber, ch: index + searchTerm.length },
-          ])
-          startIndex = index + searchTerm.length
-          index = lineForCompare.indexOf(searchTermForCompare, startIndex)
-        }
-      })
-    }
-  }
-
-  matchPositions.value = _matchPositions
-  if (matchPositions.value.length > 0 && indexOfMatch.value >= matchPositions.value.length) {
-    indexOfMatch.value = matchPositions.value.length - 1
-  }
-}
-
-function nextMatch() {
-  if (!checkMatchNumber())
-    return
-  indexOfMatch.value = (indexOfMatch.value + 1) % numberOfMatches.value
-}
-function prevMatch() {
-  if (!checkMatchNumber())
-    return
-  indexOfMatch.value = (indexOfMatch.value - 1 + numberOfMatches.value) % numberOfMatches.value
-}
-
-function toggleShowReplace() {
-  showReplace.value = !showReplace.value
-}
-
-function toggleRegex() {
-  isRegex.value = !isRegex.value
-}
-
-function toggleCaseSensitive() {
-  isCaseSensitive.value = !isCaseSensitive.value
+function captureSelection() {
+  const { from, to, empty } = props.editorView.state.selection.main
+  return empty ? null : { from, to }
 }
 
 function toggleFindInSelection() {
   if (!findInSelection.value) {
-    const selection = props.editorView.state.selection.main
-    if (!selection.empty) {
-      selectionRange.value = { from: selection.from, to: selection.to }
-    }
-    else {
-      // Use full document when selection is empty
-      selectionRange.value = { from: 0, to: props.editorView.state.doc.length }
-    }
-  }
-  else {
-    selectionRange.value = null
+    selectionRange.value = captureSelection() ?? selectionRange.value
+    if (!selectionRange.value)
+      return
   }
   findInSelection.value = !findInSelection.value
 }
 
-function closeSearchTab() {
-  showSearchTab.value = false
+async function openSearch(word: string, replace = false) {
+  selectionRange.value = captureSelection()
+  findInSelection.value = false
+  if (word || replace)
+    searchWord.value = word
+  if (replace)
+    showReplace.value = true
+  showSearchTab.value = true
+  await nextTick()
+  searchInputRef.value?.focus()
+  searchInputRef.value?.select()
 }
 
+watch(showSearchTab, (open) => {
+  if (!open) {
+    showReplace.value = false
+    findInSelection.value = false
+    selectionRange.value = null
+  }
+})
+
 function handleSearchInputKeyDown(e: KeyboardEvent) {
-  switch (e.key) {
-    case `Enter`:
-      nextMatch()
-      e.preventDefault()
+  if (e.key === `Enter` && !e.isComposing) {
+    e.preventDefault()
+    nextMatch(e.shiftKey ? -1 : 1)
   }
 }
 
@@ -288,127 +176,28 @@ function autoResizeTextarea(e: Event) {
   el.style.height = `${Math.min(150, el.scrollHeight)}px`
 }
 
+function replacement({ from, to }: MatchRange) {
+  const insert = isRegex.value && pattern.value
+    ? props.editorView.state.sliceDoc(from, to).replace(pattern.value, replaceWord.value)
+    : replaceWord.value
+  return { from, to, insert }
+}
+
 function handleReplace() {
-  if (!checkMatchNumber())
+  const match = currentMatchPosition.value
+  if (!match)
     return
-  if (!currentMatchPosition.value)
-    return
-
-  const from = currentMatchPosition.value[0]
-  const to = currentMatchPosition.value[1]
-  const fromLine = props.editorView.state.doc.line(from.line + 1)
-  const toLine = props.editorView.state.doc.line(to.line + 1)
-  const fromPos = fromLine.from + from.ch
-  const toPos = toLine.from + to.ch
-
-  let insertText = replaceWord.value
-  if (isRegex.value) {
-    try {
-      const matchedText = props.editorView.state.sliceDoc(fromPos, toPos)
-      insertText = matchedText.replace(new RegExp(searchWord.value, `gm`), replaceWord.value)
-    }
-    catch (e) {
-      console.warn(`Invalid Regex Replacement`, e)
-    }
-  }
-
-  props.editorView.dispatch({
-    changes: { from: fromPos, to: toPos, insert: insertText },
-    selection: { anchor: fromPos + insertText.length },
-  })
-  findAllMatches()
+  const change = replacement(match)
+  props.editorView.dispatch({ changes: change, selection: { anchor: change.from + change.insert.length } })
+  nextTick(revealMatch)
 }
 
 function handleReplaceAll() {
-  if (!checkMatchNumber())
-    return
-  if (!currentMatchPosition.value)
-    return
-
-  // Replace from end to start to avoid position drift
-  const sortedPositions = [...matchPositions.value].sort((a, b) => {
-    if (a[0].line !== b[0].line) {
-      return b[0].line - a[0].line
-    }
-    return b[0].ch - a[0].ch
-  })
-
-  const changes = sortedPositions.map((pos: any) => {
-    const from = pos[0]
-    const to = pos[1]
-    const fromLine = props.editorView.state.doc.line(from.line + 1)
-    const toLine = props.editorView.state.doc.line(to.line + 1)
-    const fromPos = fromLine.from + from.ch
-    const toPos = toLine.from + to.ch
-
-    let insertText = replaceWord.value
-    if (isRegex.value) {
-      try {
-        const matchedText = props.editorView.state.sliceDoc(fromPos, toPos)
-        insertText = matchedText.replace(new RegExp(searchWord.value, `gm`), replaceWord.value)
-      }
-      catch (e) {
-        console.warn(`Invalid Regex Replacement`, e)
-      }
-    }
-
-    return { from: fromPos, to: toPos, insert: insertText }
-  })
-
-  props.editorView.dispatch({ changes })
-  findAllMatches()
+  if (numberOfMatches.value)
+    props.editorView.dispatch({ changes: matchPositions.value.map(replacement) })
 }
 
-function setSearchWord(word: string) {
-  searchWord.value = word
-  if (!showSearchTab.value) {
-    showSearchTab.value = true
-  }
-  else {
-    setTimeout(() => {
-      searchInputRef.value?.focus()
-      searchInputRef.value?.select()
-    }, 0)
-  }
-}
-
-/**
- * Open search panel with replace expanded
- */
-function setSearchWithReplace(word: string) {
-  searchWord.value = word
-  showReplace.value = true
-  if (!showSearchTab.value) {
-    showSearchTab.value = true
-  }
-  else {
-    setTimeout(() => {
-      searchInputRef.value?.focus()
-      searchInputRef.value?.select()
-    }, 0)
-  }
-}
-
-onUnmounted(() => {
-  clearAllMarks()
-})
-
-/**
- * Check whether any matches exist
- * Returns false when there are no matches
- * Returns true when matches exist
- */
-function checkMatchNumber(): boolean {
-  return numberOfMatches.value > 0
-}
-
-defineExpose({
-  showSearchTab,
-  searchWord,
-  setSearchWord,
-  setSearchWithReplace,
-  showReplace,
-})
+defineExpose({ showSearchTab, openSearch })
 </script>
 
 <template>
@@ -423,7 +212,7 @@ defineExpose({
         :title="t('search.toggleReplace')"
         :aria-label="t('search.toggleReplace')"
         class="h-7 w-5 flex items-center justify-center p-0"
-        @click="toggleShowReplace"
+        @click="showReplace = !showReplace"
       >
         <component :is="showReplace ? ChevronDown : ChevronRight" class="h-3.5 w-3.5" />
       </Button>
@@ -445,7 +234,7 @@ defineExpose({
               :aria-label="t('search.caseSensitive')"
               class="h-5 w-5 p-0"
               :class="{ 'bg-accent': isCaseSensitive }"
-              @click="toggleCaseSensitive"
+              @click="isCaseSensitive = !isCaseSensitive"
             >
               <CaseSensitive class="h-3 w-3" />
             </Button>
@@ -456,7 +245,7 @@ defineExpose({
               :aria-label="t('search.regex')"
               class="h-5 w-5 p-0"
               :class="{ 'bg-accent': isRegex }"
-              @click="toggleRegex"
+              @click="isRegex = !isRegex"
             >
               <Regex class="h-3 w-3" />
             </Button>
@@ -465,6 +254,7 @@ defineExpose({
               size="xs"
               :title="t('search.findInSelection')"
               :aria-label="t('search.findInSelection')"
+              :aria-pressed="findInSelection"
               class="h-5 w-5 p-0"
               :class="{ 'bg-accent': findInSelection }"
               @click="toggleFindInSelection"
@@ -483,7 +273,7 @@ defineExpose({
             :title="t('search.previous')"
             :aria-label="t('search.previous')"
             class="h-6 w-6 p-0"
-            @click="prevMatch"
+            @click="nextMatch(-1)"
           >
             <ChevronUp class="h-3 w-3" />
           </Button>
@@ -493,7 +283,7 @@ defineExpose({
             :title="t('search.next')"
             :aria-label="t('search.next')"
             class="h-6 w-6 p-0"
-            @click="nextMatch"
+            @click="nextMatch()"
           >
             <ChevronDown class="h-3 w-3" />
           </Button>
@@ -503,7 +293,7 @@ defineExpose({
             :title="t('search.close')"
             :aria-label="t('search.close')"
             class="h-6 w-6 p-0"
-            @click="closeSearchTab"
+            @click="showSearchTab = false"
           >
             <X class="h-3 w-3" />
           </Button>

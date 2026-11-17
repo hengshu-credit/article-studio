@@ -1,14 +1,16 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 // @vitest-environment jsdom
-import { ARTICLE_COMPONENTS, componentPalette, decorateWeChatReference, WECHAT_REFERENCE_FONT, WECHAT_REFERENCE_SOURCE } from '@article-studio/article-kit'
+import { applyComponentTheme, ARTICLE_COMPONENTS, componentPalette, decorateWeChatReference, WECHAT_REFERENCE_FONT, WECHAT_REFERENCE_SOURCE } from '@article-studio/article-kit'
 import referenceMarkdown from '@article-studio/article-kit/wechat-reference.md?raw'
 import { initRenderer } from '@md/core/renderer'
 import { applyTheme } from '@md/core/theme'
 import { postProcessHtml, renderMarkdown } from '@md/core/utils'
 import juice from 'juice'
 import { describe, expect, it } from 'vitest'
+import { modifyHtmlStructure } from '@/services/export/clipboard-dom'
 import { getStylesToAdd } from '@/services/export/share-styles'
+import { preparePublishImages } from '@/services/publish/images'
 import { wrapArticleHtml } from './artifact-html'
 
 // Vitest stubs CSS modules by default; read the shipped styles for inlining assertions.
@@ -23,6 +25,48 @@ function render(markdown: string, reference = true, isMacCodeBlock = true): stri
 }
 
 describe(`weChat reference theme`, () => {
+  it.each(['1', '0.75'])(`inlines the selected spacing around report images, download links and headings at %s×`, async (blockSpacing) => {
+    await applyTheme({
+      themeName: 'default',
+      customCSS: referenceCSS,
+      variables: { primaryColor: '#c00000', fontFamily: WECHAT_REFERENCE_FONT, fontSize: '14px', lineHeight: '1.6', blockSpacing },
+    })
+    const markdown = '正文\n\n<a href="report.png"><img src="report.png" alt="报表"></a>\n\n[下载 Excel](report.xlsx)\n\n### 下一份报告\n\n![报表](report.png)\n\n## 下一章'
+    const root = document.createElement('div')
+    root.innerHTML = juice(`${await getStylesToAdd()}${render(markdown)}`)
+    const gap = (px: number) => `${px * Number(blockSpacing)}px`
+    const link = root.querySelector<HTMLAnchorElement>('a[href="report.xlsx"]')!
+    expect(link.parentElement!.style.marginBottom).toBe(gap(8))
+    expect(link.parentElement!.nextElementSibling).toBe(root.querySelector('h3'))
+    expect(root.querySelector('h3')!.style.marginTop).toBe(gap(14))
+    expect(root.querySelector('figure')!.style.marginTop).toBe(gap(8))
+    const images = root.querySelectorAll<HTMLImageElement>('a > img, figure > img')
+    expect(images).toHaveLength(2)
+    for (const image of images)
+      expect(image.style.marginBottom).toBe('0px')
+  })
+
+  it.each([
+    ['14px', '1.6', '33.6px', '22.4px'],
+    ['18px', '2', '54px', '36px'],
+  ])('leaves one and a half body lines above a chapter and one below at %s × %s', async (fontSize, lineHeight, before, after) => {
+    await applyTheme({
+      themeName: 'default',
+      customCSS: referenceCSS,
+      variables: { primaryColor: '#c00000', fontFamily: WECHAT_REFERENCE_FONT, fontSize, lineHeight, blockSpacing: '1.35' },
+    })
+    const markdown = '```js\nconst value = 1\n```\n\n## 交流与关注\n\n| 平台 |\n| --- |\n| 微信 |'
+    const root = document.createElement('div')
+    root.innerHTML = juice(`${await getStylesToAdd()}${render(markdown)}`)
+    const heading = root.querySelector('h2')!
+    expect(heading.style.paddingTop).toBe(before)
+    expect(heading.style.paddingBottom).toBe(after)
+    expect(root.querySelector('.wechat-code-frame')!.getAttribute('style')).toMatch(/margin-bottom:\s*0(?:px)?;/)
+    const tableBlock = heading.nextElementSibling as HTMLElement
+    expect(tableBlock.querySelector('td')?.textContent).toBe('微信')
+    expect(tableBlock.style.marginTop).toBe('0px')
+  })
+
   it(`inlines one theme-colored square per unordered item and preserves nested numbering and links`, async () => {
     const markdown = `- [文档](https://example.com/docs)\n  1. 有序子项\n- • 原文符号\n\n1. 有序父项\n   - 无序子项`
     await applyTheme({
@@ -37,13 +81,13 @@ describe(`weChat reference theme`, () => {
     for (const item of items) {
       const square = item.firstElementChild as HTMLElement
       expect(square.getAttribute(`aria-hidden`)).toBe(`true`)
-      expect(square.style.backgroundColor).toBe(`rgb(40, 117, 107)`)
-      expect(square.style.width).toBe(`6px`)
+      expect(square.textContent).toBe(`■`)
+      expect(square.style.color).toBe(`rgb(40, 117, 107)`)
       expect(item.style.overflowWrap).toBe(`anywhere`)
     }
-    expect(items[0].textContent.trimStart()).toMatch(/^文档/)
+    expect(items[0].textContent.trimStart()).toMatch(/^■文档/)
     expect(items[0].querySelector(`a`)?.getAttribute(`href`)).toBe(`https://example.com/docs`)
-    expect(items[1].textContent.trim()).toBe(`• 原文符号`)
+    expect(items[1].textContent.trim()).toBe(`■• 原文符号`)
     expect(root.querySelectorAll(`ol > li > .wechat-list-square`)).toHaveLength(0)
     expect(root.querySelector(`ol > li`)?.textContent).toMatch(/^1\. /)
     expect(render(markdown, false)).not.toContain(`wechat-list-square`)
@@ -56,6 +100,40 @@ describe(`weChat reference theme`, () => {
     expect([...root.querySelectorAll(`.wechat-subsection .wechat-heading-number`)].map(el => el.textContent)).toEqual([`01`, `02`, `01`])
     expect(root.querySelectorAll(`[data-heading]`)).toHaveLength(5)
     expect(render(`## 普通主题`, false)).not.toContain(`wechat-chapter`)
+  })
+
+  it.each([true, false])('keeps ordered items flush with the article and colors only their ordinals (reference=%s)', async (reference) => {
+    const theme = { fontFamily: WECHAT_REFERENCE_FONT, fontSize: '14px', lineHeight: '1.6', primaryColor: reference ? '#c00000' : '#28756b' }
+    const color = reference ? 'rgb(192, 0, 0)' : 'rgb(40, 117, 107)'
+    await applyTheme({ themeName: 'default', customCSS: reference ? referenceCSS : '', variables: { ...theme, isUseIndent: true, isUseJustify: true } })
+    const markdown = '9. **渠道进件。** 客户经上游渠道进入平台。\n10. 授信额度。\n\n    后续段落。\n\n    1. 核查\n\n<ol start="4"><li><p>2026. 原文编号</p></li></ol>'
+    const themed = applyComponentTheme(render(markdown, reference), theme)
+    const inlined = juice(`${await getStylesToAdd()}${themed}`)
+    const html = wrapArticleHtml(reference ? inlined : modifyHtmlStructure(inlined), { ...theme, referenceTheme: reference })
+    const root = document.createElement('div')
+    root.innerHTML = html
+    const markers = [...root.querySelectorAll<HTMLElement>('.article-list-number')]
+    expect(markers.map(el => el.textContent)).toEqual(['9. ', '10. ', '1. ', '4. '])
+    for (const marker of markers)
+      expect(marker.style.color).toBe(color)
+    const lists = root.querySelectorAll<HTMLElement>('[data-wechat-tag="ol"]')
+    expect(lists).toHaveLength(3)
+    for (const box of root.querySelectorAll<HTMLElement>('[role="list"], [role="listitem"], [role="listitem"] > p')) {
+      expect(box.style.paddingLeft).toBe('0px')
+      expect(box.style.marginLeft).toBe('0px')
+      expect(Number.parseFloat(box.style.textIndent)).toBe(0)
+      expect(box.style.textAlign).toBe('left')
+    }
+    expect(lists[0].lastElementChild!.contains(lists[1])).toBe(true)
+    expect(lists[0].firstElementChild!.textContent).toBe('9. 渠道进件。 客户经上游渠道进入平台。')
+    expect(lists[2].querySelector('p')?.textContent).toBe('4. 2026. 原文编号')
+    const media = await preparePublishImages({ html, markdown }, 'http://localhost')
+    const post = await media.forCover('')
+    expect(post.content).toBe(html)
+    expect(post.markdown).toContain('9. **渠道进件。**')
+    expect(post.markdown).toContain('10. 授信额度。')
+    expect(post.markdown).toMatch(/\n\s+1\. 核查/)
+    expect((await media.forCover('', true)).content).toContain('10. 授信额度。')
   })
 
   it(`keeps explicit numbering and heading markup while escaping heading text`, () => {
@@ -75,10 +153,10 @@ describe(`weChat reference theme`, () => {
     root.innerHTML = render(markdown)
     const headings = root.querySelectorAll(`h4.wechat-minor-heading`)
     expect(headings).toHaveLength(2)
-    expect(headings[0].textContent).toBe(`特征区分度`)
+    expect(headings[0].querySelector('.wechat-heading-label')?.textContent).toBe(`特征区分度`)
     expect(headings[0].getAttribute(`data-heading`)).toBe(`true`)
     expect(headings[0].querySelector(`.wechat-heading-square`)?.getAttribute(`aria-hidden`)).toBe(`true`)
-    expect(headings[1].textContent).toBe(`01 稳定性与方法`)
+    expect(headings[1].querySelector('.wechat-heading-label')?.textContent).toBe(`01 稳定性与方法`)
     expect(headings[1].querySelector(`.wechat-heading-label strong`)?.textContent).toBe(`稳定性`)
     expect(headings[1].querySelector(`a`)?.getAttribute(`href`)).toBe(`https://example.com`)
     expect([...root.querySelectorAll(`.wechat-subsection .wechat-heading-number`)].map(el => el.textContent)).toEqual([`01`, `02`])
@@ -162,6 +240,8 @@ describe(`weChat reference theme`, () => {
         const text = label.firstElementChild as HTMLElement
         const rule = label.lastElementChild as HTMLElement
         expect(text.style.lineHeight).toBe(`25px`)
+        expect(text.style.minWidth).toBe('6em')
+        expect(text.style.boxSizing).toBe('content-box')
         expect(text.style.paddingLeft).toBe('0.5em')
         expect(text.style.paddingRight).toBe('0.5em')
         expect(text.style.borderWidth).toBe(`0px`)
@@ -180,6 +260,41 @@ describe(`weChat reference theme`, () => {
     expect(headings[1].querySelector(`strong`)?.textContent).toBe(`策略`)
     expect(headings[1].querySelector(`a`)?.getAttribute(`href`)).toBe(`https://example.com`)
     expect(root.querySelector(`style,link`)).toBeNull()
+  })
+
+  it('delivers styled headings and square bullets after editor cleanup without losing Markdown semantics', async () => {
+    const variables = { primaryColor: '#28756b', fontFamily: WECHAT_REFERENCE_FONT, fontSize: '14px', lineHeight: '1.6' }
+    await applyTheme({ themeName: 'default', customCSS: referenceCSS, variables })
+    const markdown = '### 分箱\n\n#### 二维交叉分箱\n\n- **分箱可定制**，筛选可追溯。\n  1. 核查\n- • [原文符号](https://example.com/docs)\n\n<WeChatHighlightV1>\n\n组件内容\n\n</WeChatHighlightV1>'
+    const html = wrapArticleHtml(juice(`${await getStylesToAdd()}${render(markdown)}`), { ...variables, referenceTheme: true })
+    const post = await (await preparePublishImages({ html, markdown }, 'http://localhost')).forCover('')
+    expect(post).toMatchObject({ wechatHtml: html, content: html })
+    expect(post.markdown).toContain('### 01 分箱')
+    expect(post.markdown).toContain('#### 二维交叉分箱')
+    expect(post.markdown).toMatch(/- \*\*分箱可定制\*\*，筛选可追溯。\n\s+1\. 核查/)
+    expect(post.markdown).toMatch(/- • \[原文符号\]\(https:\/\/example\.com\/docs(?: "原文符号")?\)/)
+    expect(post.markdown).not.toContain('■')
+    const root = document.createElement('div')
+    root.innerHTML = post.content
+    for (const el of root.querySelectorAll('*')) {
+      if (el.tagName === 'SPAN' && !el.textContent?.trim())
+        el.remove()
+      for (const attr of [...el.attributes]) {
+        if (attr.name !== 'style' && attr.name !== 'href')
+          el.removeAttribute(attr.name)
+      }
+    }
+    const exact = (text: string) => [...root.querySelectorAll<HTMLElement>('*')].find(el => !el.children.length && el.textContent === text)!
+    expect(exact('01').style.borderBottomWidth).toBe('3px')
+    expect(exact('分箱').style.borderBottomWidth).toBe('1px')
+    const squares = [...root.querySelectorAll<HTMLElement>('span')].filter(el => el.textContent === '■')
+    expect(squares.map(el => el.style.color)).toEqual(['rgb(192, 0, 0)', 'rgb(40, 117, 107)', 'rgb(40, 117, 107)'])
+    expect(squares[0].parentElement!.textContent).toBe('■二维交叉分箱')
+    expect(squares[1].parentElement!.querySelector('strong')?.textContent).toBe('分箱可定制')
+    expect(squares[1].parentElement!.querySelector('ol > li')?.textContent).toContain('1. 核查')
+    expect(root.querySelector('a')?.getAttribute('href')).toBe('https://example.com/docs')
+    expect(root.textContent).toContain('组件内容')
+    expect(root.querySelector('ul, h3, h4')).toBeNull()
   })
 
   it.each([
@@ -202,18 +317,17 @@ describe(`weChat reference theme`, () => {
     const badge = root.querySelector<HTMLElement>(`.wechat-chapter .wechat-heading-number`)!
     expect(badge.style.backgroundColor).toBe(`rgb(192, 0, 0)`)
     expect(badge.style.minWidth).toBe(`25px`)
-    const minorHeading = root.querySelector<HTMLElement>(`h4.wechat-minor-heading`)!
+    const minorHeading = root.querySelector<HTMLElement>(`[role="heading"][aria-level="4"]`)!
     const square = minorHeading.querySelector<HTMLElement>(`.wechat-heading-square`)!
-    expect(minorHeading.textContent).toBe(`特征区分度`)
+    expect(minorHeading.textContent).toBe(`■特征区分度`)
     expect(minorHeading.style.fontFamily).toContain(`KaiTi`)
     expect(minorHeading.style.fontSize).toBe(`14px`)
     expect(minorHeading.style.color).toBe(`rgb(38, 38, 38)`)
     expect(minorHeading.style.letterSpacing).toBe(`1.5px`)
     expect(minorHeading.style.fontWeight).toBe(`700`)
-    expect(square.style.backgroundColor).toBe(`rgb(192, 0, 0)`)
-    expect(square.style.width).toBe(`6px`)
-    expect(square.style.height).toBe(`6px`)
-    expect(square.style.marginRight).toBe(`12px`)
+    expect(square.style.color).toBe(`rgb(192, 0, 0)`)
+    expect(square.style.width).toBe(`18px`)
+    expect(square.style.marginLeft).toBe(`-18px`)
     const paragraph = [...root.querySelectorAll<HTMLElement>(`p`)].find(p => p.textContent?.startsWith(`数据分析首先`))!
     expect(paragraph.style.fontSize).toBe(WECHAT_REFERENCE_SOURCE.bodyFontSize)
     expect(paragraph.style.textIndent).toBe(`34px`)

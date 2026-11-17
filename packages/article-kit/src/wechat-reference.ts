@@ -136,14 +136,19 @@ function decorateHeading(heading: HTMLElement, number: string, chapter: boolean)
   heading.classList.add(chapter ? `wechat-chapter` : `wechat-subsection`)
 }
 
-function decorateMinorHeading(heading: HTMLElement): void {
+function squareMarker(className: string): HTMLSpanElement {
   const marker = document.createElement(`span`)
-  marker.className = `wechat-heading-square`
+  marker.className = className
   marker.setAttribute(`aria-hidden`, `true`)
+  marker.textContent = `■`
+  return marker
+}
+
+function decorateMinorHeading(heading: HTMLElement): void {
   const label = document.createElement(`span`)
   label.className = `wechat-heading-label`
   label.append(...heading.childNodes)
-  heading.replaceChildren(marker, label)
+  heading.replaceChildren(squareMarker(`wechat-heading-square`), label)
   heading.classList.add(`wechat-minor-heading`)
 }
 
@@ -160,11 +165,10 @@ export function decorateWeChatReference(html: string, referenceTheme: boolean): 
       if (item.classList.contains(`listitem`) && first instanceof Text && first.data.startsWith(`• `))
         first.deleteData(0, 2)
 
-      const square = document.createElement(`span`)
-      square.className = `wechat-list-square`
-      square.setAttribute(`aria-hidden`, `true`)
-      square.textContent = `\u00A0`
-      item.prepend(square)
+      // Keep the marker on the first line even in a loose (paragraph) item.
+      const lead = [...item.childNodes].find(node => node.nodeType !== Node.TEXT_NODE || node.textContent?.trim())
+      const line = lead instanceof HTMLParagraphElement ? lead : item
+      line.prepend(squareMarker(`wechat-list-square`))
     }
     let chapterIndex = 0
     let subsectionIndex = 0

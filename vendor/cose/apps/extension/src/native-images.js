@@ -1,7 +1,8 @@
 /** Serialized into the platform tab. All file handling runs against its own editor. */
-export async function uploadInEditor(image, cover, expectedOrigin, timeout = 30000, requireEmptyDraft = false, selectWechatCover = false) {
+export async function uploadInEditor(image, cover, expectedOrigin, timeout = 30000, requireEmptyDraft = false, knownCoverAsset = null) {
   try {
-    return { ok: true, url: await upload() }
+    const result = await upload()
+    return typeof result === 'object' && result !== null ? { ok: true, ...result } : { ok: true, url: result }
   } catch (error) {
     return { ok: false, error: error.message }
   }
@@ -38,23 +39,30 @@ export async function uploadInEditor(image, cover, expectedOrigin, timeout = 300
         }
       } catch { /* Let this platform's native image importer retrieve the URL. */ }
       if (!blob) {
-        if (cover) throw new Error('请下载封面原图，在平台草稿中选择文件上传')
+        if (cover && !knownCoverAsset && !/(^|\.)qpic\.cn$/i.test(url.hostname)) throw new Error('请下载封面原图，在平台图片库中选择文件上传')
         const img = document.createElement('img')
         img.src = url.href
         transfer.setData('text/html', img.outerHTML)
       }
     }
+    let fileName
     if (blob) {
       const ext = blob.type === 'image/jpeg' ? 'jpg' : blob.type.split('/')[1].split('+')[0]
-      const filename = image.name.replace(/[\\/:*?"<>|\r\n]/g, '-').slice(0, 120)
-      transfer.items.add(new File([blob], `${filename}.${ext}`, { type: blob.type }))
+      if (cover && expectedOrigin === 'https://mp.weixin.qq.com') {
+        const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())
+        const hash = Array.from(new Uint8Array(digest).slice(0, 12), byte => byte.toString(16).padStart(2, '0')).join('')
+        fileName = `cover-${hash}.${ext}`
+      } else {
+        fileName = `${image.name.replace(/[\\/:*?"<>|\r\n]/g, '-').slice(0, 120)}.${ext}`
+      }
+      transfer.items.add(new File([blob], fileName, { type: blob.type }))
     }
 
     function remote(raw, doc) {
       if (!raw || raw.startsWith('#')) return null
       try {
         const url = new URL(raw, doc.baseURI)
-        return /^https?:$/.test(url.protocol) && (blob || url.href !== image.sourceUrl) ? url.href : null
+        return /^https?:$/.test(url.protocol) && (cover || blob || url.href !== image.sourceUrl) ? url.href : null
       } catch { return null }
     }
     const probes = new Map()
@@ -69,7 +77,117 @@ export async function uploadInEditor(image, cover, expectedOrigin, timeout = 300
       const img = probes.get(url)
       return img.complete && img.naturalWidth > 0 ? url : null
     }
+    // The cover has its own file and media-library selection, independent of
+    // the article's image atoms. Do not change the publisher's crop settings.
+    async function chooseWechatCover() {
+      const area = document.querySelector('#js_cover_area')
+      if (!area) throw new Error('未找到微信封面设置')
+      const visible = el => el?.getClientRects().length && getComputedStyle(el).visibility !== 'hidden'
+      const dialogs = () => [...document.querySelectorAll('.weui-desktop-dialog,[role=dialog]')].filter(visible)
+      const heading = el => el.querySelector('h3,[role=heading]')?.textContent.trim()
+      const button = (el, labels) => [...el.querySelectorAll('button,a,[role=button]')].find(b =>
+        labels.includes(b.textContent.trim()) && !b.disabled && b.getAttribute('aria-disabled') !== 'true' && visible(b))
+      const preview = () => {
+        const el = area.querySelector('.js_cover_preview_new')
+        const src = el?.style.backgroundImage.match(/^url\(["']?(https?:\/\/.*?)["']?\)$/)?.[1]
+        return visible(el) && src ? loadable(src, document) : null
+      }
+      const previous = preview()
+      for (const target of [area, area.querySelector('.select-cover__btn')].filter(Boolean)) {
+        target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+        target.dispatchEvent(new MouseEvent('mouseenter'))
+      }
+      const options = [...area.querySelectorAll('.js_imagedialog')]
+      const library = options.find(visible) || area.querySelector('.js_cover_null_pop .js_imagedialog') || options[0]
+      if (!library) throw new Error('未找到微信封面的“从图片库选择”入口')
+      library.click()
+      const gallery = await wait(() => dialogs().find(d =>
+        /图片|素材/.test(heading(d) || '') && !/从正文插入/.test(d.innerText || '')), 8000)
+      if (!gallery) throw new Error('微信封面图片库未打开')
+
+      function group(name) {
+        return [...gallery.querySelectorAll('.weui-desktop-img-category__title')].find(el =>
+          el.textContent.trim() === name)?.closest('a')
+      }
+      const currentGroup = () => gallery.querySelector('.weui-desktop-menu__link_current .weui-desktop-img-category__title')?.textContent.trim()
+      const recent = group('最近使用')
+      if (!recent) throw new Error('微信图片库没有显示“最近使用”分组')
+      if (currentGroup() !== '最近使用') {
+        recent.click()
+        await wait(() => currentGroup() === '最近使用', 3000)
+      }
+      function asset(raw) {
+        try {
+          const url = new URL(raw)
+          return /(^|\.)qpic\.cn$/i.test(url.hostname) ? url.hostname + url.pathname.replace(/\/\d+$/, '') : null
+        } catch { return null }
+      }
+      const wanted = asset(knownCoverAsset || image.sourceUrl)
+      const stem = fileName?.slice(0, fileName.lastIndexOf('.'))
+      const tiles = () => [...gallery.querySelectorAll('.weui-desktop-img-picker__item')]
+      const thumb = el => el.querySelector('.weui-desktop-img-picker__img-thumb')
+      const source = tile => thumb(tile)?.style.backgroundImage.match(/^url\(["']?(.*?)["']?\)$/)?.[1]
+      function findCover() {
+        return tiles().find(tile => {
+          const name = tile.querySelector('.weui-desktop-img-picker__img-title')?.textContent.trim()
+          return (wanted && asset(source(tile)) === wanted) || (fileName && (name === fileName || name === stem))
+        })
+      }
+      await wait(() => tiles().length || gallery.textContent.includes('暂无'), 3000)
+      let tile = findCover()
+      const seen = new Set()
+      const pageKey = () => tiles().map(source).join('|')
+      while (!tile) {
+        const next = button(gallery, ['下一页'])
+        const page = pageKey()
+        if (!next || !page || seen.has(page)) break
+        seen.add(page)
+        next.click()
+        if (!await wait(() => tiles().length && pageKey() !== page, 4000)) break
+        tile = findCover()
+      }
+      if (!tile) {
+        if (!blob) throw new Error('最近使用中没有匹配的封面，请在微信图片库上传原图')
+        group('我的图片')?.click()
+        await wait(() => currentGroup() !== '最近使用', 3000)
+        let input = gallery.querySelector('input[type=file]:not(:disabled)')
+        if (!input) {
+          const oldInputs = new Set(document.querySelectorAll('input[type=file]'))
+          const upload = button(gallery, ['上传文件', '上传图片', '本地上传', '上传'])
+          if (!upload) throw new Error('未找到微信图片库内的上传入口')
+          upload.click()
+          input = await wait(() => gallery.querySelector('input[type=file]:not(:disabled)') ||
+            [...document.querySelectorAll('input[type=file]:not(:disabled)')].find(el => !oldInputs.has(el)), 3000)
+        }
+        if (!input) throw new Error('微信图片库未提供可接收原图的文件控件')
+        input.files = transfer.files
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+        tile = await wait(findCover, timeout)
+      }
+      if (!tile) throw new Error('微信图片库尚未返回指定封面原图')
+      const selection = thumb(tile) || tile
+      if (!tile.matches('[aria-selected=true],.weui-desktop-img-picker__item_selected')) selection.click()
+      const choose = await wait(() => button(gallery, ['确定', '确认', '下一步', '完成']), 5000)
+      if (!choose) throw new Error('微信图片库尚未确认所选封面')
+      choose.click()
+
+      const accepted = await wait(() => {
+        const crop = dialogs().find(d => heading(d) === '编辑封面')
+        if (crop) return { crop }
+        const url = preview()
+        return !visible(gallery) && url && url !== previous ? { url } : null
+      }, timeout)
+      if (!accepted) throw new Error('微信尚未显示所选封面，请检查草稿')
+      if (!accepted.crop) return accepted
+      const confirm = await wait(() => button(accepted.crop, ['确认', '确定', '完成']), 8000)
+      if (!confirm) return { pendingCover: true }
+      confirm.click()
+      const url = await wait(() => !visible(accepted.crop) && preview(), timeout)
+      return url ? { url } : { pendingCover: true }
+    }
+
     if (cover) {
+      if (expectedOrigin === 'https://mp.weixin.qq.com') return chooseWechatCover()
       // Only target explicitly identified cover controls, never a generic attachment input.
       const control = await wait(() => [...document.querySelectorAll('input[type=file]')].find(input =>
         !input.disabled && (input.closest('[class*="cover" i],[id*="cover" i],[data-testid*="cover" i]') ||
@@ -166,59 +284,6 @@ export async function uploadInEditor(image, cover, expectedOrigin, timeout = 300
     if (!uploaded) throw new Error(blob
       ? '平台未返回可保存的图片地址，请在目标编辑器检查文件粘贴和上传结果'
       : '平台未能转存这张外链图片，请下载后从素材库插入并重新分发')
-
-    // WeChat's picker reads the image atoms in the current body. Select the
-    // uploaded original before removing its temporary atom, even for a cover
-    // which is not present in the finished article.
-    async function chooseWechatCover() {
-      const area = doc.querySelector('#js_cover_area')
-      const open = area?.querySelector('.js_selectCoverFromContent')
-      if (!open) throw new Error('未找到微信的“从正文选择”封面入口')
-      const dialog = heading => [...doc.querySelectorAll('.weui-desktop-dialog')].find(el =>
-        el.getClientRects().length && el.querySelector('h3')?.textContent.trim() === heading)
-      const button = (el, text) => [...el.querySelectorAll('button')].find(b =>
-        !b.disabled && b.textContent.trim() === text)
-      function original(src) {
-        try {
-          const url = new URL(src, doc.baseURI)
-          // WeChat serves thumbnails of the same qpic asset at /0 and /640.
-          return /(^|\.)qpic\.cn$/i.test(url.hostname)
-            ? url.hostname + url.pathname.replace(/\/\d+$/, '')
-            : url.href
-        } catch { return null }
-      }
-      const wanted = original(uploaded.url)
-      const background = el => el?.style.backgroundImage.match(/^url\(["']?(.*?)["']?\)$/)?.[1]
-      let active
-      try {
-        open.click()
-        active = await wait(() => dialog('选择图片'), 5000)
-        const item = active && await wait(() => [...active.querySelectorAll('.appmsg_content_img_item')].find(li => {
-          const src = background(li.querySelector('.appmsg_content_img'))
-          return src && original(src) === wanted
-        }), 5000)
-        if (!item) throw new Error('微信选图窗口未找到指定的封面原图')
-        item.click()
-        const next = await wait(() => button(active, '下一步'), 3000)
-        if (!next) throw new Error('微信封面图片尚未选中')
-        next.click()
-        const crop = await wait(() => dialog('编辑封面'), 5000)
-        if (!crop) throw new Error('微信封面裁剪窗口未打开')
-        active = crop
-        const confirm = await wait(() => button(crop, '确认'), 5000)
-        if (!confirm) throw new Error('微信封面裁剪尚未就绪')
-        confirm.click()
-        if (!await wait(() => !dialog('编辑封面') && background(area.querySelector('.js_cover_preview_new')), 8000))
-          throw new Error('微信未确认封面裁剪结果')
-      } catch (error) {
-        if (active?.getClientRects().length) button(active, '取消')?.click()
-        throw error
-      }
-    }
-    let coverError
-    if (selectWechatCover) {
-      try { await chooseWechatCover() } catch (error) { coverError = error }
-    }
 
     function insertionRange() {
       if (!editor.isConnected) return null
@@ -319,16 +384,15 @@ export async function uploadInEditor(image, cover, expectedOrigin, timeout = 300
     await sleep(50)
     if (!await wait(restored, 1500))
       throw new Error(`图片“${image.name}”已上传，编辑器未确认临时内容清理完成，请检查当前草稿`)
-    if (coverError) throw coverError
     return uploaded.url
   }
 }
 
-export async function resolveBodyImages(content, upload, importsHtmlImages = false, includeCover = false) {
+export async function resolveBodyImages(content, upload, importsHtmlImages = false) {
   const { images, ...post } = content
   const urls = new Map()
   for (const image of images || []) {
-    if (!post.body?.includes(image.key) && !post.markdown?.includes(image.key) && !(includeCover && image.key === post.thumb)) continue
+    if (!post.body?.includes(image.key) && !post.markdown?.includes(image.key)) continue
     if (importsHtmlImages && image.sourceUrl) {
       // These adapters can import CORS-restricted external URLs and confirm native storage.
       urls.set(image.key, image.sourceUrl)

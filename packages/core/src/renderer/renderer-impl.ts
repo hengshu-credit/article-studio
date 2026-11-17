@@ -259,11 +259,7 @@ export function initRenderer(opts: IOpts = {}): RendererAPI {
       return ``
     }
     const minutes = Math.ceil(readingTime.minutes)
-    return `
-      <blockquote class="md-blockquote">
-        <p class="md-blockquote-p">${formatCountSummary(readingTime.words, minutes)}</p>
-      </blockquote>
-    `
+    return `<p class="md-reading-summary">${formatCountSummary(readingTime.words, minutes)}</p>\n`
   }
 
   const buildFootnotes = () => {
@@ -345,6 +341,8 @@ export function initRenderer(opts: IOpts = {}): RendererAPI {
       listOrderedStack.pop()
       listCounters.pop()
 
+      if (ordered && Number(start) !== 1)
+        return `<ol class="ol" start="${Number(start)}">${html}</ol>`
       return styledContent(
         ordered ? `ol` : `ul`,
         html,

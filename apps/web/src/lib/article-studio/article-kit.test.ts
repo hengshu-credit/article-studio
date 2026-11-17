@@ -1,14 +1,18 @@
-import { ARTICLE_COMPONENTS, mergeArticleComponents } from '@article-studio/article-kit'
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { ARTICLE_COMPONENTS, mergeArticleComponents } from '@article-studio/article-kit'
 import starterMarkdown from '@article-studio/article-kit/starter.md?raw'
 import { initRenderer } from '@md/core/renderer'
+import { applyTheme } from '@md/core/theme'
 import { postProcessHtml, renderMarkdown } from '@md/core/utils'
 import juice from 'juice'
 import { describe, expect, it } from 'vitest'
+import { getStylesToAdd } from '@/services/export/share-styles'
 import { inspectArticleHtml, makeArticleDocument, wrapArticleHtml } from './artifact-html'
 
-function render(content: string): string {
-  const renderer = initRenderer({ components: Object.fromEntries(ARTICLE_COMPONENTS.map(component => [component.name, component])) })
+function render(content: string, countStatus = false): string {
+  const renderer = initRenderer({ countStatus, components: Object.fromEntries(ARTICLE_COMPONENTS.map(component => [component.name, component])) })
   const { html, readingTime } = renderMarkdown(content, renderer)
   return postProcessHtml(html, readingTime, renderer)
 }
@@ -50,6 +54,31 @@ describe(`versioned article components`, () => {
 })
 
 describe(`delivery HTML`, () => {
+  it(`delivers a reading-time paragraph and a single painted rail on classless and nested quotes`, async () => {
+    const source = render(`> 一级引用\n>\n> > **二级引用**`, true)
+    const css = readFileSync(resolve(process.cwd(), '../../packages/article-kit/styles/blockquote.css'), 'utf8')
+    await applyTheme({
+      themeName: 'default',
+      customCSS: `:root { --md-quote-tint: #fcf2f2; }\n${css}`,
+      variables: { primaryColor: '#28756b', fontFamily: 'serif', fontSize: '14px' },
+    })
+    const inlined = juice(`${await getStylesToAdd()}${source}<blockquote><p>导入的引用</p></blockquote>`)
+    const root = document.createElement(`div`)
+    root.innerHTML = wrapArticleHtml(inlined, { fontFamily: `serif`, fontSize: `14px`, lineHeight: `1.6` })
+    expect(root.querySelector(`blockquote`)).toBeNull()
+    const summary = root.querySelector<HTMLElement>('p.md-reading-summary')!
+    expect(summary.textContent).toMatch(/\d/)
+    expect(summary.closest('[role="blockquote"]')).toBeNull()
+    const quotes = [...root.querySelectorAll<HTMLElement>('[role="blockquote"]')]
+    expect(quotes).toHaveLength(3)
+    for (const block of [summary, ...quotes]) {
+      expect(block.style.borderLeftWidth).not.toBe('3px')
+      expect(block.style.backgroundImage).toBe('linear-gradient(to right, rgb(40, 117, 107) 3px, transparent 3px)')
+      expect(block.style.backgroundColor).toBe('rgb(252, 242, 242)')
+    }
+    expect(root.querySelector(`[role="blockquote"] [role="blockquote"] strong`)?.textContent).toBe(`二级引用`)
+  })
+
   it(`keeps inline table, code highlighting and card styles without an external stylesheet`, () => {
     const source = `<h2>分析</h2><table><tr><td>8</td></tr></table><pre><code><span class="hljs-keyword">SELECT</span> 8;</code></pre>${render(`<MetricCardV1 label="样本" value="8 条" detail="演示" />`)}`
     const inlined = juice(`<style>h2{color:#245b83}td{border:1px solid #dce4ed}.hljs-keyword{color:#c678dd}pre{white-space:pre}</style>${source}`)

@@ -1,13 +1,16 @@
-blockquote {
+blockquote,
+p.md-reading-summary {
   display: block;
   box-sizing: border-box;
   margin: 18px 0;
-  padding: 12px 16px;
+  padding: 12px 16px 12px 19px;
   border: 0;
-  border-left: 3px solid var(--md-primary-color);
+  border-left: 0;
   border-radius: 0;
   box-shadow: none;
   background: var(--md-quote-tint);
+  /* Paint inside the box. WeChat draws blockquote::before at this same edge. */
+  background-image: linear-gradient(to right, var(--md-primary-color) 3px, transparent 3px);
   color: var(--md-primary-color);
   font-size: 0.9em;
   font-style: normal;
@@ -15,6 +18,9 @@ blockquote {
   text-align: left;
   text-indent: 0;
   overflow-wrap: break-word;
+}
+p.md-reading-summary {
+  letter-spacing: 0.1em;
 }
 blockquote p {
   margin: 0;

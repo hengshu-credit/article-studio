@@ -1,3 +1,4 @@
+import { styleOrderedLists } from './ordered-list'
 import { applyParagraphFormatting } from './paragraph-format'
 
 export interface ComponentTheme {
@@ -43,7 +44,7 @@ export function componentPalette(theme: ComponentTheme) {
 
 /** One inline styling contract for live articles, thumbnails and delivery HTML. */
 export function applyComponentTheme(html: string, theme: ComponentTheme): string {
-  if (!html.includes(`data-md-component=`))
+  if (!html.includes(`data-md-component=`) && !/<ol\b/i.test(html))
     return applyParagraphFormatting(html)
   const container = document.createElement(`div`)
   container.innerHTML = html
@@ -177,5 +178,6 @@ export function applyComponentTheme(html: string, theme: ComponentTheme): string
       next.style.marginTop = `0`
     }
   }
+  styleOrderedLists(container, theme.primaryColor)
   return applyParagraphFormatting(container.innerHTML)
 }

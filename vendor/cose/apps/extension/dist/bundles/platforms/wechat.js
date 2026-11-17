@@ -156,6 +156,15 @@ async function fillWechatContent(title, htmlBody) {
         editor.innerHTML = ''
       }
 
+      // Strip the navigation wrapper after image upload. Its href can still
+      // point to /media/... even though the nested image now has a WeChat URL.
+      if (/<a[\s/>]/i.test(htmlBody)) {
+        const template = document.createElement('template')
+        template.innerHTML = htmlBody
+        for (const link of template.content.querySelectorAll('a'))
+          link.replaceWith(...link.childNodes)
+        htmlBody = template.innerHTML
+      }
       const plainText = htmlBody.replace(/<[^>]*>/g, '')
       const hasImageInSource = /<img\b/i.test(htmlBody)
       let injected = false
@@ -220,7 +229,10 @@ async function fillWechatContent(title, htmlBody) {
       // 验证内容是否注入成功
       const wordCount = editor.textContent?.trim().length || 0
       const imageCount = editor.querySelectorAll?.('img').length || 0
-      const hasEditorContent = wordCount > 0 || imageCount > 0 || injected
+      const hasEditorContent = wordCount > 0 || imageCount > 0
+      // Save runs in a separate executeScript call after cover selection.
+      // Identify the same editable root, rather than a title or toolbar.
+      if (hasEditorContent) editor.setAttribute('data-cose-wechat-body', '')
 
       return {
         success: hasEditorContent,
@@ -239,15 +251,14 @@ async function fillWechatContent(title, htmlBody) {
 
 // Serialized into the editor tab. WeChat counts two Latin characters as one
 // digest unit. Leave the source description intact for other channels.
-async function saveWechatDraft(description, hasCover) {
+async function saveWechatDraft(description, expectedCover) {
   let notice
-  if (hasCover && !document.querySelector('#js_cover_area .js_cover_preview_new')?.style.backgroundImage?.startsWith('url('))
-    return { success: false, error: '微信编辑器没有保留指定封面，请检查当前草稿' }
+  let digest
   if (description) {
     const field = document.querySelector('#js_description, textarea[name="digest"]')
     if (!field) return { success: false, error: '未找到微信公众号摘要输入框' }
     const limit = Number(field.getAttribute('max-length')) || 120
-    let digest = ''
+    digest = ''
     let units = 0
     for (const char of description) {
       units += char.charCodeAt(0) <= 255 ? 1 : 2 * char.length
@@ -270,13 +281,85 @@ async function saveWechatDraft(description, hasCover) {
     if (field.value !== digest || (counter && parseInt(counter.textContent, 10) !== expectedCount))
       return { success: false, error: '微信编辑器未接受发布描述，请检查摘要' }
   }
+  if (expectedCover) {
+    const preview = document.querySelector('#js_cover_area .js_cover_preview_new')
+    const url = preview?.style.backgroundImage.match(/^url\(["']?(https?:\/\/.*?)["']?\)$/)?.[1]
+    if (!preview?.getClientRects().length || !url || url !== expectedCover)
+      return { success: false, error: '微信编辑器没有保留指定封面，请检查当前草稿' }
+  }
   const saveDraftBtn = Array.from(document.querySelectorAll('button')).find(b =>
     !b.disabled && b.textContent.trim() === '保存为草稿'
   )
   if (saveDraftBtn) {
-    saveDraftBtn.click()
-    console.log('[COSE] 已点击保存为草稿')
-    return { success: true, notice }
+    const editor = document.querySelector('.ProseMirror[data-cose-wechat-body]')
+    if (!editor) return { success: false, error: '正文编辑器已变化，请重新核对微信草稿' }
+    const linkSelector = 'a[href], a[data-href], a[linktype], a[data-linktype], a.wx_topic_link, a[data-topic]'
+    const links = () => [...editor.querySelectorAll(linkSelector)].filter(a => !a.closest('.ProseMirror-widget'))
+    const pause = () => new Promise(resolve => setTimeout(resolve, 50))
+    // WeChat can turn "#0" in pasted code into a topic with no href.
+    // Its own unlink action also removes the topic from the editor model.
+    const topics = () => links().filter(a => a.matches('.wx_topic_link,[data-topic]'))
+    for (let count = topics().length; count > 0; count--) {
+      const [topic] = topics()
+      if (!topic) break
+      topic.addEventListener('click', event => event.preventDefault(), { once: true })
+      topic.click()
+      let cancel
+      for (let i = 0; i < 20 && !cancel; i++) {
+        const labels = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+        while (labels.nextNode()) {
+          if (labels.currentNode.textContent.trim() !== '取消话题标签') continue
+          const el = labels.currentNode.parentElement
+          if (el && !el.closest('.ProseMirror') && el.getClientRects().length) {
+            cancel = el
+            break
+          }
+        }
+        if (!cancel) await pause()
+      }
+      if (!cancel) return { success: false, error: '微信自动生成了话题链接，未找到“取消话题标签”，请在草稿中检查' }
+      cancel.click()
+      for (let i = 0; i < 20 && editor.contains(topic) && topic.matches(linkSelector); i++) await pause()
+      if (topics().length >= count) return { success: false, error: '微信未确认取消话题标签，请在草稿中检查' }
+    }
+
+    // Keep surrounding blocks (notably mpcpc ads) intact. Re-pasting the
+    // whole article here would let WeChat rebuild or discard those blocks.
+    const remaining = links()
+    if (remaining.length) {
+      const view = editor.editor?.view || editor.pmViewDesc?.view
+      if (!view?.serializeForClipboard || view.dom !== editor)
+        return { success: false, error: '微信重新生成了正文链接，无法核对正文模型，请在草稿中检查' }
+      for (const link of remaining) link.replaceWith(...link.childNodes)
+      await pause()
+      view.domObserver?.flush()
+      const doc = view.state.doc
+      const { dom } = view.serializeForClipboard(doc.slice(0, doc.content.size))
+      if (dom.querySelector(linkSelector))
+        return { success: false, error: '微信正文模型仍含链接，请在草稿中检查' }
+    }
+    if (!editor.isConnected || links().length)
+      return { success: false, error: '微信编辑器未确认正文链接已清除，请在草稿中检查' }
+    // Observe the result of this click, rather than an old "已保存" toast
+    // or an ID in the new editor URL (which can remain isNew=1).
+    return await new Promise(resolve => {
+      const done = result => { observer.disconnect(); clearTimeout(timer); resolve(result) }
+      const observer = new MutationObserver(records => {
+        for (const record of records) {
+          for (const node of [record.target, ...record.addedNodes]) {
+            const el = node.nodeType === 1 ? node : node.parentElement
+            const tip = el?.closest('.page_tips') || (node !== record.target && el?.querySelector('.page_tips'))
+            if (!tip || !tip.getClientRects().length) continue
+            const text = tip.textContent.trim()
+            if (/已保存|保存成功/.test(text)) return done({ success: true, notice })
+            if (/失败|错误|超出|无法/.test(text)) return done({ success: false, error: text })
+          }
+        }
+      })
+      observer.observe(document.body, { childList: true, characterData: true, attributes: true, subtree: true })
+      const timer = setTimeout(() => done({ success: true, notice, warning: '保存请求已提交，微信尚未返回保存回执，请在草稿箱核对。' }), 8000)
+      saveDraftBtn.click()
+    })
   }
   return { success: false, error: '未找到保存按钮' }
 }
@@ -403,9 +486,9 @@ async function syncWechatContent(tab, content, helpers) {
   await injectUtils(chrome, tab.id)
 
   // 步骤5：填充内容
-  let result
+  let fillResponse
   try {
-    result = await chrome.scripting.executeScript({
+    fillResponse = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: fillWechatContent,
       args: [content.title, htmlContent],
@@ -416,7 +499,7 @@ async function syncWechatContent(tab, content, helpers) {
     return { success: false, message: '脚本执行失败: ' + e.message, tabId: tab.id }
   }
 
-  const fillResult = result?.[0]?.result
+  const fillResult = fillResponse?.[0]?.result
   console.log('[COSE] 微信填充结果:', JSON.stringify(fillResult, null, 2))
 
   if (!fillResult?.success) {
@@ -426,18 +509,26 @@ async function syncWechatContent(tab, content, helpers) {
 
   console.log('[COSE] 微信内容填充成功，字数:', fillResult.wordCount)
 
-  // 步骤6：等待内容稳定后，点击保存为草稿按钮
-  await new Promise(resolve => setTimeout(resolve, 500))
+  // Stay in the new editor: WeChat can save a draft without ever putting its
+  // ID in this tab's URL. Finish the cover before the final save.
+  let expectedCover = null
+  let warning
+  if (content.thumb) {
+    try {
+      const cover = await helpers.images?.cover?.(tab)
+      expectedCover = cover?.url ?? null
+      if (!expectedCover) warning = '封面原图已交给微信，尚未得到可保存的封面预览，请检查当前草稿。'
+    } catch (error) {
+      warning = `封面待处理：${error.message}`
+    }
+  }
   const [saved] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: saveWechatDraft,
-    args: [content.desc ?? '', Boolean(content.thumb)],
-    world: 'MAIN',
+    target: { tabId: tab.id }, world: 'MAIN', func: saveWechatDraft,
+    args: [content.desc ?? '', expectedCover],
   })
   if (!saved?.result?.success)
-    return { success: false, message: saved?.result?.error || '微信未提交草稿保存', tabId: tab.id }
-
-  return { success: true, message: '已同步并保存为草稿', notice: saved.result.notice, tabId: tab.id }
+    return { success: false, message: saved?.result?.error || '微信未确认草稿保存', tabId: tab.id }
+  return { success: true, message: '已提交草稿保存', notice: saved.result.notice, warning: [warning, saved.result.warning].filter(Boolean).join('；') || undefined, tabId: tab.id }
 }
 
 // 导出

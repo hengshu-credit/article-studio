@@ -112,19 +112,6 @@ const searchTabRef = useTemplateRef<InstanceType<typeof SearchTabType>>(`searchT
 const searchTabMounted = ref(false)
 const pendingSearchRequest = ref<{ selected: string } | null>(null)
 
-function applySearchRequest(
-  target: InstanceType<typeof SearchTabType>,
-  word: string,
-  showReplace = false,
-) {
-  if (showReplace)
-    target.setSearchWithReplace(word)
-  else if (word)
-    target.setSearchWord(word)
-  else
-    target.showSearchTab = true
-}
-
 function mountSearchTab() {
   searchTabMounted.value = true
 }
@@ -137,7 +124,7 @@ function openSearchWithSelection(view: EditorView) {
   const selected = view.state.doc.sliceString(selection.from, selection.to).trim()
 
   if (searchTabRef.value)
-    applySearchRequest(searchTabRef.value, selected)
+    searchTabRef.value.openSearch(selected)
   else
     pendingSearchRequest.value = { selected }
 }
@@ -148,7 +135,7 @@ function openReplaceWithSelection(view: EditorView) {
   const selected = view.state.doc.sliceString(selection.from, selection.to).trim()
 
   if (searchTabRef.value)
-    searchTabRef.value.setSearchWithReplace(selected)
+    searchTabRef.value.openSearch(selected, true)
   else
     uiStore.openSearchTab(selected, true)
 }
@@ -158,13 +145,13 @@ watch(searchTabRef, (newRef) => {
     return
 
   if (pendingSearchRequest.value) {
-    applySearchRequest(newRef, pendingSearchRequest.value.selected)
+    newRef.openSearch(pendingSearchRequest.value.selected)
     pendingSearchRequest.value = null
   }
 
   if (searchTabRequest.value) {
     const { word, showReplace } = searchTabRequest.value
-    applySearchRequest(newRef, word, showReplace)
+    newRef.openSearch(word, showReplace)
     uiStore.clearSearchTabRequest()
   }
 })
@@ -174,7 +161,7 @@ watch(searchTabRequest, (request) => {
     return
   mountSearchTab()
   if (searchTabRef.value) {
-    applySearchRequest(searchTabRef.value, request.word, request.showReplace)
+    searchTabRef.value.openSearch(request.word, request.showReplace)
     uiStore.clearSearchTabRequest()
   }
 })

@@ -4,7 +4,36 @@ import test from 'node:test'
 import {
   fillWechatContent,
   pickWechatBodyProseMirrorCandidate,
+  saveWechatDraft,
+  syncWechatContent,
 } from '../packages/core/src/platforms/wechat.js'
+
+test('新建页未返回草稿编号时也依次填正文、设置封面、提交摘要并保存', async () => {
+  const calls = []
+  const tab = { id: 7 }
+  const cover = 'https://images.example/cover.jpg'
+  const chrome = {
+    tabs: { update: async () => {} },
+    scripting: { executeScript: async ({ func, args }) => {
+      if (func === fillWechatContent) {
+        calls.push('body')
+        return [{ result: { success: true } }]
+      }
+      if (func === saveWechatDraft) {
+        calls.push('save')
+        assert.deepEqual(args, ['渠道摘要', cover])
+        return [{ result: { success: true } }]
+      }
+      return [{ result: true }]
+    } },
+  }
+  const result = await syncWechatContent(tab, { title: '测试', body: '<p>正文</p>', thumb: 'cover-key', desc: '渠道摘要' }, {
+    chrome, waitForTab: async () => {},
+    images: { cover: async () => { calls.push('cover'); return { url: cover } } },
+  })
+  assert.equal(result.success, true)
+  assert.deepEqual(calls, ['body', 'cover', 'save'])
+})
 
 function createEditor({ textContent = '', top = 0, height = 120, width = 640, classes = [] } = {}) {
   const classSet = new Set(classes)
@@ -61,6 +90,7 @@ function createProseMirrorElement({ textContent = '', classes = [], onDispatchEv
     clientHeight: 480,
     clientWidth: 720,
     innerHTMLWrites,
+    setAttribute() {},
     focus() {},
     dispatchEvent(event) {
       onDispatchEvent?.(event)

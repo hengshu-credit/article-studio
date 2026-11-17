@@ -690,22 +690,21 @@ async function syncDraftWithImages(platformId, content) {
   }
   if (!platform || !content.images?.length) return syncToPlatform(platformId, content, {})
   const origin = new URL(platform.publishUrl).origin
+  // When these exact bytes were already uploaded, the same WeChat asset can
+  // be found in the gallery's Recently used group (often named 未命名图片).
+  let knownCoverAsset = null
   async function upload(tab, image, cover = false) {
     const [reply] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: 'MAIN',
       func: uploadInEditor,
-      args: [image, cover, origin, 30000, platformId === 'bilibili', wechat && image.key === content.thumb],
+      args: [image, cover, origin, 30000, platformId === 'bilibili', wechat && cover ? knownCoverAsset : null],
     })
     if (!reply?.result?.ok)
       throw new Error(reply?.result?.error || '平台图片上传未完成')
+    if (wechat && cover) return reply.result
+    if (wechat && image.key === content.thumb) knownCoverAsset = reply.result.url
     return reply.result.url
-  }
-  if (wechat) {
-    // WeChat commits the crop while the image is in its native body picker.
-    return syncToPlatform(platformId, content, {
-      prepare: tab => resolveBodyImages(content, image => upload(tab, image), false, true),
-    })
   }
   let coverHandled = false
   let warning
@@ -715,13 +714,14 @@ async function syncDraftWithImages(platformId, content) {
       const image = content.images.find(image => image.key === content.thumb)
       if (coverHandled || !image) return
       coverHandled = true
+      if (wechat) return upload(tab, image, true)
       try { await upload(tab, image, true) }
       catch (error) { warning = error.message }
     },
   }
   const result = await syncToPlatform(platformId, content, images)
   if (result.success) await images.cover({ id: result.tabId })
-  return { ...result, warning }
+  return { ...result, warning: warning || result.warning }
 }
 
 // 同步到平台

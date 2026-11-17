@@ -11,8 +11,9 @@ beforeEach(() => {
   vi.useFakeTimers()
   document.body.innerHTML = `<div id="js_cover_area"><div class="js_cover_preview_new" style="background-image:url('https://images.test/cover')"></div></div>
     <div id="js_description_span"><textarea name="digest" id="js_description" max-length="120">默认正文</textarea><em class="frm_counter">4/120</em></div>
-    <button>保存为草稿</button>`
+    <div class="ProseMirror" data-cose-wechat-body><p>正文</p></div><button>保存为草稿</button>`
   digest = document.querySelector('textarea')!
+  Object.defineProperty(document.querySelector('.js_cover_preview_new'), 'getClientRects', { value: () => [new DOMRect()] })
   model = digest.value
   saved = []
   digest.onkeyup = () => {
@@ -24,7 +25,7 @@ beforeEach(() => {
 afterEach(() => { document.body.replaceChildren(); vi.useRealTimers() })
 
 async function save(description: string, cover = true) {
-  const result = saveWechatDraft(description, cover)
+  const result = saveWechatDraft(description, cover ? 'https://images.test/cover' : null)
   await vi.runAllTimersAsync()
   return result
 }

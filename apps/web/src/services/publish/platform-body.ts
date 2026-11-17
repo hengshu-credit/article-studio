@@ -5,10 +5,22 @@ import { toText } from 'hast-util-to-text'
 import { gfmToMarkdown } from 'mdast-util-gfm'
 import { mathToMarkdown } from 'mdast-util-math'
 import { toMarkdown } from 'mdast-util-to-markdown'
+import { restoreReferenceStructure } from '@/lib/article-studio/wechat-structure'
 
 /** Project the rendered content, including values supplied through component props. */
 export function renderPlatformBody(template: DocumentFragment, format: 'markdown' | 'text', markup: ReturnType<typeof inspectPublishMarkup>): string {
   const root = template.cloneNode(true) as DocumentFragment
+  restoreReferenceStructure(root)
+  // Strip only renderer prefixes, before removing decorative squares. A bullet
+  // following a reference square belongs to the author's original text.
+  if (format === 'markdown') {
+    for (const item of root.querySelectorAll('li.listitem')) {
+      const first = item.firstChild
+      if (first?.nodeType === Node.TEXT_NODE)
+        first.textContent = first.textContent?.replace(item.parentElement?.tagName === 'OL' ? /^\d+\. / : /^• /, '') ?? ''
+    }
+    root.querySelectorAll('ol.article-ordered-list .article-list-number').forEach(marker => marker.remove())
+  }
   root.querySelectorAll('.mac-sign, .line-numbers, [aria-hidden="true"], [hidden], style, script').forEach(el => el.remove())
   for (const number of root.querySelectorAll('.wechat-heading-number'))
     number.append(' ')
@@ -57,12 +69,6 @@ export function renderPlatformBody(template: DocumentFragment, format: 'markdown
     return toText(fromDom(root)).trim()
   }
 
-  // The editor paints list markers as text. Markdown supplies its own markers.
-  for (const item of root.querySelectorAll('li.listitem')) {
-    const first = item.firstChild
-    if (first?.nodeType === Node.TEXT_NODE)
-      first.textContent = first.textContent?.replace(item.parentElement?.tagName === 'OL' ? /^\d+\. / : /^• /, '') ?? ''
-  }
   const tree = toMdast(fromDom(root), {
     nodeHandlers: { comment: () => undefined },
     handlers: {

@@ -1,3 +1,5 @@
+import { prepareWeChatStructure } from './wechat-structure'
+
 export function wrapArticleHtml(html: string, style: { fontFamily: string, fontSize: string, lineHeight: string, referenceTheme?: boolean }): string {
   const article = document.createElement(`section`)
   article.setAttribute(`data-article-kit`, `v1`)
@@ -18,6 +20,17 @@ export function wrapArticleHtml(html: string, style: { fontFamily: string, fontS
     article.style.letterSpacing = `0.544px`
   }
   article.innerHTML = html
+  prepareWeChatStructure(article, style.referenceTheme)
+  // Native blockquotes, including imported HTML without editor classes,
+  // gain a gray ::before in WeChat. Their theme is already inline here.
+  for (const quote of article.querySelectorAll(`blockquote`)) {
+    const section = document.createElement(`section`)
+    for (const { name, value } of quote.attributes)
+      section.setAttribute(name, value)
+    section.setAttribute(`role`, `blockquote`)
+    section.append(...quote.childNodes)
+    quote.replaceWith(section)
+  }
   return article.outerHTML
 }
 

@@ -1,3 +1,4 @@
+import { WECHAT_REFERENCE_PRESET } from '@article-studio/article-kit'
 import { inlineEmojiImagesAsBase64 } from '@/lib/export/inlineEmojiImages'
 import { stripUnresolvedAsyncPlaceholders, waitForPreviewReady } from '@/lib/preview/preview-ready'
 import { useEditorStore } from '@/stores/editor'
@@ -79,7 +80,9 @@ export async function processClipboardContent(primaryColor: string) {
     }
 
     stripInvalidCssForJuice(clipboardDiv)
-    clipboardDiv.innerHTML = modifyHtmlStructure(await mergeCss(clipboardDiv.innerHTML))
+    const inlined = await mergeCss(clipboardDiv.innerHTML)
+    // The reference artifact handles its own lists; keep children with their parent items.
+    clipboardDiv.innerHTML = themeStore.articlePresetId === WECHAT_REFERENCE_PRESET ? inlined : modifyHtmlStructure(inlined)
 
     clipboardDiv.querySelectorAll(`a[href^="#"]`).forEach(a => a.removeAttribute(`href`))
 
@@ -120,7 +123,7 @@ export async function processClipboardContent(primaryColor: string) {
     prepareMathFormulasForWeChat(clipboardDiv)
 
     const html = clipboardDiv.innerHTML
-    clipboardDiv.querySelectorAll('.mac-sign[aria-hidden="true"]').forEach(el => el.remove())
+    clipboardDiv.querySelectorAll('.mac-sign[aria-hidden="true"], .wechat-heading-square[aria-hidden="true"]').forEach(el => el.remove())
     return {
       html,
       plainText: clipboardDiv.textContent || ``,

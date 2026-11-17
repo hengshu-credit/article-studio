@@ -7,14 +7,14 @@ const cover = { key: 'studio-image-cover~', data: 'data:image/png;base64,Yg==', 
 const html = `<section data-md-component="WeChatFigureV1"><img alt="报告" src="${bodyImage.key}" style="width:50%"><img src="${bodyImage.key}"></section><pre><code><span style="color:red">SELECT</span></code></pre>`
 const content = { body: html, wechatHtml: html, markdown: `![报告](${bodyImage.key})`, thumb: cover.key, images: [bodyImage, cover] }
 
-test('WeChat prepares a separate cover without inserting it into the article and uploads a shared cover only once', async () => {
+test('cover-only images stay out of the article until the dedicated cover control receives them', async () => {
   for (const thumb of [cover.key, bodyImage.key]) {
     const uploads = []
     const resolved = await resolveBodyImages({ ...content, thumb }, async image => {
       uploads.push(image.key)
       return `https://images.example/${image.key}.png`
-    }, false, true)
-    assert.deepEqual(uploads, thumb === cover.key ? [bodyImage.key, cover.key] : [bodyImage.key])
+    })
+    assert.deepEqual(uploads, [bodyImage.key])
     assert.equal(resolved.body, html.replaceAll(bodyImage.key, `https://images.example/${bodyImage.key}.png`))
   }
 })

@@ -164,7 +164,8 @@ export function modifyHtmlStructure(htmlString: string): string {
   tempDiv.innerHTML = htmlString
 
   tempDiv.querySelectorAll(`li > ul, li > ol`).forEach((originalItem) => {
-    originalItem.parentElement?.insertAdjacentElement(`afterend`, originalItem)
+    if (!originalItem.closest('ol.article-ordered-list'))
+      originalItem.parentElement?.insertAdjacentElement(`afterend`, originalItem)
   })
 
   return tempDiv.innerHTML

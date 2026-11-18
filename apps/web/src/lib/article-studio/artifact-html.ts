@@ -1,3 +1,4 @@
+import { prepareWechatCodeBlock } from './wechat-code'
 import { prepareWeChatStructure } from './wechat-structure'
 
 function isWechatLink(value: string): boolean {
@@ -22,15 +23,18 @@ function externalWechatLinks(root: ParentNode) {
   )
 }
 
-/** Remove unsupported navigation while retaining the contents of linked text and images. */
+/** Adapt navigation and highlighted code after theme styles have been inlined. */
 export function prepareWechatHtml(html: string): string {
   const template = document.createElement('template')
   template.innerHTML = html
   const external = externalWechatLinks(template.content)
-  if (!external.length)
+  const codeBlocks = template.content.querySelectorAll<HTMLElement>('pre.code__pre')
+  if (!external.length && !codeBlocks.length)
     return html
   for (const link of external)
     link.replaceWith(...link.childNodes)
+  for (const pre of codeBlocks)
+    prepareWechatCodeBlock(pre)
   return template.innerHTML
 }
 

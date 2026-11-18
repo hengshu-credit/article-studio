@@ -48,7 +48,7 @@ pnpm dev
 
 ## 外网部署
 
-当前尚未绑定实际域名或服务器。准备服务器时采用一个 Node 服务进程、一个持久数据目录，以及 HTTPS 反向代理。
+生产访问地址为 `https://article.hengshucredit.com`。准备服务器时采用一个 Node 服务进程、一个持久数据目录，以及 HTTPS 反向代理；DNS、证书与服务器部署需单独配置。
 
 1. 安装 Node.js >= 22.22.2 和 pnpm 11.25.0，上传或拉取项目。
 2. 执行 `pnpm install --frozen-lockfile`、`pnpm build`。
@@ -67,16 +67,16 @@ pnpm dev
 4. 将域名的 DNS 解析到服务器，以 HTTPS 反向代理到 `127.0.0.1:5173`。例如 Caddy 配置：
 
 ```caddyfile
-write.example.com {
+article.hengshucredit.com {
     reverse_proxy 127.0.0.1:5173
 }
 ```
 
-将示例域名替换为自己的域名。反向代理需保留 Host 和 Authorization，并允许 `/api/workspace/events` 的长连接及时发送数据；不要缓存 `/api/workspace*`。公网只暴露 HTTPS 入口，开发服务器不用于公网部署。反向代理参考：[Caddy reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)。
+反向代理需保留 Host 和 Authorization，并允许 `/api/workspace/events` 的长连接及时发送数据；不要缓存 `/api/workspace*`。公网只暴露 HTTPS 入口，开发服务器不用于公网部署。反向代理参考：[Caddy reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)。
 
 5. 使用两个独立浏览器或手机与电脑登录：A 修改、B 检查；B 撤销、A 检查；刷新和服务重启后再次检查内容及撤销。定期备份持久数据目录。
 
-自定义域名的 COSE 分发还需将最终域名加入扩展桥接的受信任来源；当前仍保留原有本机与上游域名白名单。域名确定后再配置，不向所有网站开放扩展权限。
+COSE 扩展已将 `https://article.hengshucredit.com` 配置为受信任来源，并保留本机开发地址。执行 `pnpm build:extension` 后，在浏览器扩展管理页加载或重新加载 `vendor/cose/apps/extension/dist`，再刷新编辑器页面。若使用上游商店版扩展，需改用本仓库构建版本才能获得该域名的桥接配置。
 
 ## 验证
 

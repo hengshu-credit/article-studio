@@ -210,7 +210,7 @@ console.log("[COSE Content Script] Hostname:", window.location.hostname);
 		if (document.readyState === "complete") cacheAlipayUserInfo();
 		else window.addEventListener("load", cacheAlipayUserInfo);
 	}
-	if (!(window.location.protocol === "http:" && ["127.0.0.1", "localhost"].includes(window.location.hostname) || window.location.origin === "https://md.doocs.org")) return;
+	if (!(window.location.protocol === "http:" && ["127.0.0.1", "localhost"].includes(window.location.hostname) || window.location.origin === "https://article.hengshucredit.com")) return;
 	const sendSync = createSyncSender(chrome.runtime);
 	const script = document.createElement("script");
 	script.src = chrome.runtime.getURL("bundles/inject.js");

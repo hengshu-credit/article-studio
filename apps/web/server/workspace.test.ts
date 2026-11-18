@@ -7,6 +7,7 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { createEventReader } from './test-utils/workspace-events.ts'
 import { createWorkspaceHandler, WorkspaceDatabase } from './workspace.ts'
 
 const post: SharedPost = { id: 'one', title: '原题', content: '原文', parentId: null, history: [], createDatetime: '2026-01-01T00:00:00.000Z', updateDatetime: '2026-01-01T00:00:00.000Z' }
@@ -105,24 +106,11 @@ test('两个独立 SSE 客户端收到编辑与全局撤销；重连收到当前
     const response = await fetch(`${base}/api/workspace/events`)
     const reader = response.body!.getReader()
     readers.push(reader)
-    let buffer = ''
+    const nextEvent = createEventReader(reader)
     return async (): Promise<WorkspaceSnapshot> => {
-      for (;;) {
-        const end = buffer.indexOf('\n\n')
-        if (end !== -1) {
-          const message = buffer.slice(0, end)
-          buffer = buffer.slice(end + 2)
-          const data = message.split('\n').find(line => line.startsWith('data: '))
-          if (data)
-            return JSON.parse(data.slice(6))
-        }
-        else {
-          const chunk = await reader.read()
-          if (chunk.done)
-            throw new Error('stream ended')
-          buffer += new TextDecoder().decode(chunk.value)
-        }
-      }
+      const event = await nextEvent()
+      assert.equal(event.event, 'message')
+      return JSON.parse(event.data)
     }
   }
   const send = (command: WorkspaceCommand, origin?: string) => fetch(`${base}/api/workspace/command`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) }, body: JSON.stringify(command) })

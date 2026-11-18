@@ -12,6 +12,7 @@ import { test } from 'node:test'
 import sharp from 'sharp'
 import { MaterialLibrary } from './materials.ts'
 import { createStudioHandler } from './studio.ts'
+import { createEventReader } from './test-utils/workspace-events.ts'
 
 async function fixture(width = 900, color = '#1565c0') {
   return sharp({ create: { width, height: 600, channels: 4, background: color } }).png().toBuffer()
@@ -104,9 +105,12 @@ test('HTTP 上传、跨客户端查询和文件读取；素材变更广播不产
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   try {
-    const response = await fetch(`${base}/api/workspace/events`)
+    const response = await fetch(`${base}/api/workspace/events`, { signal: AbortSignal.timeout(10000) })
     reader = response.body!.getReader()
-    await reader.read()
+    const nextEvent = createEventReader(reader)
+    const initial = await nextEvent()
+    assert.equal(initial.event, 'message')
+    assert.equal(JSON.parse(initial.data).sequence, 0)
     const bytes = await fixture()
     const hash = createHash('sha256').update(bytes).digest('hex')
     assert.equal((await fetch(`${base}/api/materials/${hash}`)).status, 404)
@@ -114,8 +118,9 @@ test('HTTP 上传、跨客户端查询和文件读取；素材变更广播不产
     assert.equal(uploaded.status, 201)
     const result = await uploaded.json() as MaterialUpload
     assert.equal(result.material.hash, hash)
-    const event = new TextDecoder().decode((await reader.read()).value)
-    assert.match(event, /event: materials/)
+    const event = await nextEvent()
+    assert.equal(event.event, 'materials')
+    assert.deepEqual(JSON.parse(event.data), {})
     const state = await (await fetch(`${base}/api/workspace`)).json() as { sequence: number, canUndo: boolean }
     assert.equal(state.sequence, 0)
     assert.equal(state.canUndo, false)

@@ -21,7 +21,7 @@ _**C**reate **O**nce **S**ync **E**verywhere_
 
 > 点击观看视频：[![Bilibili](https://img.shields.io/badge/Video-Bilibili-00A1D6?logo=bilibili&logoColor=white)](https://www.bilibili.com/video/BV1ZxqnB1E2C/) [![YouTube](https://img.shields.io/badge/Video-YouTube-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=KTskiA8Xaj4)
 
-1. 先点击安装扩展 [![Chrome Web Store](https://img.shields.io/badge/Install-Chrome%20Web%20Store-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/ilhikcdphhpjofhlnbojifbihhfmmhfk) 然后打开 [md.doocs.org](https://md.doocs.org) 或本地开发环境
+1. 在仓库根目录执行 `pnpm build:extension`，在浏览器扩展管理页加载 `vendor/cose/apps/extension/dist`，然后打开 [Article Studio](https://article.hengshucredit.com) 或本地开发环境。本仓库构建的扩展已配置该域名的桥接权限。
 2. 编辑 Markdown 内容
 3. 点击顶部的 **发布** 按钮
 4. 在弹出的对话框中选择要同步的平台

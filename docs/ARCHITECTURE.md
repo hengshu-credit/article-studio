@@ -29,7 +29,7 @@ flowchart LR
 
 原版 COSE 为部分富文本平台主动点击复制按钮并读取剪贴板。此仓库在 `addTask` 中增加可选 `post.wechatHtml`：有该字段时直接传入平台消息，没有时保持原有行为。编辑器始终同时传递 `post.content` 和 `post.wechatHtml`，二者均为成稿 HTML，`post.markdown` 仍保留原 Markdown。
 
-扩展平台脚本保持原有协议；公众号适配器继续负责定位正文编辑器、注入 HTML 与草稿保存。浏览器权限、登录态和平台改版问题仍需要在真实浏览器中验证。桥接 API 仅向本地 `http://127.0.0.1`、`http://localhost` 和上游 `https://md.doocs.org` 页面暴露；平台登录检测的原有辅助逻辑保留。
+扩展平台脚本保持原有协议；公众号适配器继续负责定位正文编辑器、注入 HTML 与草稿保存。浏览器权限、登录态和平台改版问题仍需要在真实浏览器中验证。桥接 API 仅向本地 `http://127.0.0.1`、`http://localhost` 和 Article Studio `https://article.hengshucredit.com` 页面暴露；平台登录检测的原有辅助逻辑保留。
 
 ## 固定组件规范
 

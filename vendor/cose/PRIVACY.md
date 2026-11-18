@@ -1,10 +1,10 @@
 # Privacy Policy for COSE - 多平台文章同步
 
-**Last Updated: December 13, 2025**
+**Last Updated: November 11, 2026**
 
 ## Overview
 
-COSE (Create Once, Sync Everywhere) is a browser extension that helps users sync articles from the md.doocs.org Markdown editor to multiple publishing platforms. We are committed to protecting your privacy.
+COSE (Create Once, Sync Everywhere) is a browser extension that helps users sync articles from the Article Studio Markdown editor at article.hengshucredit.com or its local development environment to multiple publishing platforms. We are committed to protecting your privacy.
 
 ## Data Collection
 
@@ -22,7 +22,7 @@ COSE operates entirely locally within your browser. The extension:
 
 All data processed by COSE remains on your local device:
 
-- **Article Content**: Your article title, body, and formatting are only read from md.doocs.org and transferred directly to the target publishing platforms within your browser.
+- **Article Content**: Your article title, body, and formatting are only read from article.hengshucredit.com or its local development environment and transferred directly to the target publishing platforms within your browser.
 - **Login Status**: The extension checks login cookies on target platforms (CSDN, Juejin, WeChat, etc.) solely to verify if you are logged in. This information is not stored or transmitted.
 - **User Preferences**: COSE does not persist user preferences or settings.
 

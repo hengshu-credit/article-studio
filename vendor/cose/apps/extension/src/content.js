@@ -1,4 +1,4 @@
-// Content Script - 在 md.doocs.org 或本地开发环境中运行
+// Content Script - 在 article.hengshucredit.com 或本地开发环境中运行
 // 注入 $cose 全局对象供页面使用
 import { createSyncSender } from './sync-sender.js'
 
@@ -248,7 +248,7 @@ console.log('[COSE Content Script] Hostname:', window.location.hostname)
   // Only trusted editor origins may invoke the account and distribution bridge.
   const isEditorOrigin =
     (window.location.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(window.location.hostname)) ||
-    window.location.origin === 'https://md.doocs.org'
+    window.location.origin === 'https://article.hengshucredit.com'
   if (!isEditorOrigin) return
   const sendSync = createSyncSender(chrome.runtime)
 
